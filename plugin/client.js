@@ -26,8 +26,7 @@ const LOCAL_KEY = 'dsh-acrylic-light:prefs'
 /** 默认值：全透明，和顶栏完全一致（纯亚克力）。 */
 const DEFAULTS = {
   enabled: true,
-  // 不透明度（%）：同时作用于**输入栏**与**文件悬停预览卡**。
-  // 0 = 完全透明（只剩描边），100 = 完全不透明。
+  // 输入栏不透明度（%）：0 = 完全透明（只剩描边），100 = 完全不透明。
   // 默认 46：既有玻璃质感，又能压住背后的文字。
   alpha: 46,
   // 噪点强度（%）。亚克力有细微颗粒感，纯色平板没有，加一点点能显著"像"。
@@ -47,8 +46,8 @@ const DICTIONARIES = {
     intro: '窗口透出桌面壁纸，由 Windows Acrylic 材质提供模糊。下列参数实时生效。',
     enable: '启用',
     enableHint: '关闭后恢复 DSH 原生外观（窗口材质仍在，只是页面不再透明）。',
-    alpha: '不透明度',
-    alphaHint: '输入栏与文件悬停预览：0 = 完全透明（只剩玻璃边），100 = 完全不透明。',
+    alpha: '输入栏不透明度',
+    alphaHint: '0 = 完全透明（只剩一圈玻璃边），100 = 完全不透明（实心板）。',
     noise: '颗粒感',
     noiseHint: '亚克力的细微噪点，让表面不像一块塑料。0 关闭。',
     frost: '输入栏磨砂',
@@ -61,8 +60,8 @@ const DICTIONARIES = {
     intro: 'The window shows the desktop wallpaper; Windows Acrylic supplies the blur. Changes apply live.',
     enable: 'Enable',
     enableHint: 'Off restores the stock DSH look (the window material stays).',
-    alpha: 'Opacity',
-    alphaHint: 'Composer and file hover previews: 0 = fully transparent, 100 = fully opaque.',
+    alpha: 'Composer opacity',
+    alphaHint: '0 = fully transparent (just a glass edge), 100 = fully opaque (solid plate).',
     noise: 'Grain',
     noiseHint: 'Fine acrylic grain so the surface is not a flat plastic sheet. 0 disables.',
     frost: 'Composer frost',
@@ -368,59 +367,6 @@ const GLASS_STYLE = [
   'html[data-dsh-acrylic-light] [class*="RlGAzG_dock"]{',
   '  background:transparent!important;',
   '  background-image:none!important;',
-  '}',
-
-  /* ══ 文件悬停预览：与输入栏同一套液态玻璃 ═══════════════════════
-     结构（实测自 dsh-web-frontend 的 index-*.css）：
-       ._card_38jqx_9    ← 外壳：position:fixed; width:244px; padding:12px 16px
-                            background: var(--dsw-hovercard-bg) = #2C2C2E 实色
-       ._preview_38jqx_52 ← 预览区：background: var(--dsw-alias-bg-layer-1)
-       两者都读令牌，而本插件把 --dsw-alias-bg-layer-1 改成了 14% 超透明
-       ⇒ 卡片近乎全透，背后正文直接穿过来，字撞字。
-
-     做法与输入栏完全一致：
-       ① 外壳 [class*="_card_38jqx"] 铺玻璃底 + 边缘线索（同一批 --acrylic-* 变量）
-       ② 预览区 [class*="_preview_38jqx"] 清底，避免两层半透明叠加
-       ③ 模糊仍挂 ::before（不挂本体）—— 外壳是 fixed 定位，
-          但它自身没有 fixed 后代（预览区是普通块级），
-          挂 ::before 最稳妥，和输入栏保持同一套写法。
-     ⚠ 因为同一个 --acrylic-panel-solid / --acrylic-edge 驱动，
-       拖动「不透明度」滑杆时输入栏与预览卡**同步变化**。 */
-  'html[data-dsh-acrylic-light] [class*="_card_38jqx"],',
-  'html[data-dsh-acrylic-light] [class*="_preview_38jqx"]{',
-  '  position:relative;',
-  '  background:var(--acrylic-panel-solid, rgb(16 18 22 / 46%))!important;',
-  '  background-image:linear-gradient(180deg,rgba(255,255,255,var(--acrylic-sheen,0.16)) 0%,rgba(255,255,255,calc(var(--acrylic-sheen,0.16) * 0.3)) 38%,rgba(255,255,255,calc(var(--acrylic-sheen,0.16) * 0.12)) 100%)!important;',
-  '  backdrop-filter:none!important;',
-  '  -webkit-backdrop-filter:none!important;',
-  '  border:1px solid rgba(255,255,255,var(--acrylic-edge,0.22))!important;',
-  '  box-shadow:',
-  '    inset 0 1px 0 rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 1.6)),',
-  '    inset 0 -1px 0 rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 0.5)),',
-  '    inset 0 0 0 1px rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 0.45)),',
-  '    0 12px 40px rgba(0,0,0,0.18)!important;',
-  '}',
-  /* 预览区在外壳内部：清掉自己的底，别叠第二层半透明 */
-  'html[data-dsh-acrylic-light] [class*="_preview_38jqx"]{',
-  '  background:transparent!important;',
-  '  background-image:none!important;',
-  '  border:0!important;',
-  '  box-shadow:none!important;',
-  '}',
-  /* 模糊载体：与输入栏同写法（伪元素不成为包含块） */
-  'html[data-dsh-acrylic-light] [class*="_card_38jqx"]::before{',
-  '  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:-1;',
-  '  -webkit-backdrop-filter:var(--acrylic-frost, blur(16px)) saturate(var(--acrylic-saturate, 1.8)) brightness(1.04) contrast(1.01);',
-  '  backdrop-filter:var(--acrylic-frost, blur(16px)) saturate(var(--acrylic-saturate, 1.8)) brightness(1.04) contrast(1.01);',
-  '}',
-  /* 浅色主题：与输入栏同一分支，用深色描边 + 白底 */
-  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="_card_38jqx"]{',
-  '  background:var(--acrylic-panel-solid-light, rgb(255 255 255 / 46%))!important;',
-  '  border:1px solid rgba(15,17,21,0.12)!important;',
-  '  box-shadow:',
-  '    inset 0 1px 0 rgba(255,255,255,0.85),',
-  '    inset 0 0 0 1px rgba(255,255,255,0.45),',
-  '    0 12px 40px rgba(15,17,21,0.12)!important;',
   '}',
   /* ── ⑥ 无障碍：系统要求降低透明度时退回实色 ───────────────── */
   '@media (prefers-reduced-transparency: reduce){',
