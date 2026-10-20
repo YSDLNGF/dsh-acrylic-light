@@ -34,20 +34,18 @@ const LOCAL_KEY = 'dsh-acrylic-light:prefs'
  *        原因：磨砂的实体感来自**白色薄雾**，不是来自模糊。
  *        模糊只能让背后的东西变糊，不会让表面变得"有材质"。
  *
- * 所以现在三个参数分别对应材质的三个真实维度：
- *   frost    —— 白雾浓度（%）。这是"磨砂板"的本体，0 就只剩模糊。
- *   blur     —— 模糊半径（px）。让背后内容糊开，制造"透过玻璃看"的感觉。
- *   saturate —— 提饱和（%）。把透上来的颜色挤出来，是玻璃质感的另一半。
+ * 输入栏就是一层透出桌面的玻璃，不暴露可调参数 ——
+ * 设置页只保留「启用」开关（下方的 frost/blur/saturate 滑块已按用户要求移除）。
  */
 const DEFAULTS = {
   enabled: true,
-  // 白雾浓度（%）。必须很淡：实测 28% 会把模糊结果盖平（边缘能量 1.03），
-  // 8% 才既提亮又不遮（边缘能量 0.54）。
-  frost: 8,
-  // 模糊半径（px）。28 是实测最像亚克力的一档。
-  blur: 28,
-  // 提饱和（%）。140 让颜色饱满又不偏亮；去掉它会发灰（饱和度掉到 79%）。
-  saturate: 140,
+  // 是否在页面底层铺桌面壁纸。
+  // 默认关闭：用户选的是「窗口真透明透出真实桌面」，不是页面截图式假壁纸。
+  // 关闭后窗口靠 backgroundMaterial:"acrylic" 透出桌面，瓦片上不叠任何图。
+  // 想退回旧截图式外观，可在这里改回 true。
+  wallpaper: false,
+  // 壁纸预模糊半径（px）。仅当 wallpaper=true 时生效。
+  wallpaperBlur: 40,
 }
 
 const DICTIONARIES = {
@@ -57,12 +55,6 @@ const DICTIONARIES = {
     intro: '窗口透出桌面壁纸，由 Windows Acrylic 材质提供模糊。输入栏是一块毛玻璃。',
     enable: '启用',
     enableHint: '关闭后恢复 DSH 原生外观（窗口材质仍在，只是页面不再透明）。',
-    frost: '磨砂白雾',
-    frostHint: '输入栏的白色薄雾浓度。调太高会把背后的模糊盖住，8 是平衡点。',
-    blur: '输入栏模糊',
-    blurHint: '输入栏背后内容的模糊半径。28 是默认档：再低看得清背后的字，再高就糊成一片。',
-    saturate: '玻璃饱和度',
-    saturateHint: '提饱和让透上来的颜色更饱满，这是玻璃感的来源。100 等于不提。',
     reset: '恢复默认',
   },
   en: {
@@ -71,12 +63,6 @@ const DICTIONARIES = {
     intro: 'The window shows the desktop wallpaper; Windows Acrylic supplies the blur. The composer is a pane of frosted glass.',
     enable: 'Enable',
     enableHint: 'Off restores the stock DSH look (the window material stays).',
-    frost: 'Frost',
-    frostHint: 'How much white haze the composer carries. Too much will hide the blur behind it; 8 is the balance point.',
-    blur: 'Composer blur',
-    blurHint: 'Blur radius over the content behind the composer. 28 is the default sweet spot.',
-    saturate: 'Glass saturation',
-    saturateHint: 'Boosting saturation is what makes it read as glass rather than tinted plastic. 100 disables.',
     reset: 'Reset',
   },
 }
@@ -111,12 +97,34 @@ const CONTROL_STYLE = [
  * 哈希前缀随构建变化，但 `_centerCol` 这一段是稳定语义名。
  */
 const GLASS_STYLE = [
+  /* ══ 壁纸层：页面最底下的那张图 ═══════════════════════════════
+     这是整套「真模糊」方案的地基。
+
+     为什么必须把壁纸画进页面：
+       backdrop-filter 只能采「同一张画布内、位于它背后的像素」。
+       窗口背后的真实桌面不在 Chromium 画布里，所以永远采不到。
+       把壁纸铺进页面后它就成了画布内像素，玻璃才有东西可糊。
+
+     它和窗口是否透明无关：即使窗口不透明，这张图也照常显示、
+     照常被上层玻璃模糊。所以这条路**不需要改 app.asar**。
+
+     z-index:-3：在页面根之下、但在窗口背景之上。 */
+  /* ⚠ 用 body::before + z-index:0，而不是 html::before + 负 z-index：
+     负 z-index 会落到根背景之后，可能被整页绘制规则盖住（实测：属性加上了但看不见图）。
+     改用 body::before 并与 #root 建立明确的层级关系，壁纸一定在内容之下。 */
+  /* 兜底：壁纸取不到时用渐变，避免露出纯色或黑屏 */
   /* ── 根：全部清空，让窗口材质透上来 ───────────────────────────
      ⚠ 这一组必须保留：DSH 默认给整页铺 #0f1115（近黑），
        它压在窗口 Acrylic 材质之上，壁纸就透不出来。
        清成透明后，材质才是唯一的底色来源。 */
   'html[data-dsh-acrylic-light],html[data-dsh-acrylic-light] body{background:transparent!important}',
+  /* body 建立层叠上下文，让 body::before 的 z-index:0 有确定的参照 */
+  'html[data-dsh-acrylic-wallpaper] body{position:relative}',
   'html[data-dsh-acrylic-light] #root{background:transparent!important}',
+  /* #root 必须抬到壁纸层（body::before, z-index:0）之上，否则页面内容会被壁纸盖住。
+     用 position:relative + z-index:1 —— 注意不能只写 z-index，
+     因为 static 定位下 z-index 无效。 */
+  'html[data-dsh-acrylic-wallpaper] #root{position:relative;z-index:1}',
 
   /* .frame 是三列布局的外框；::before 是标题栏那 40px 拖动区。
      两者都是整块面积，必须一起清透明，否则会盖住窗口材质。
@@ -269,6 +277,17 @@ const GLASS_STYLE = [
   '  --dsw-static-neutral-bluish-700:rgb(240 243 247)!important;',
   '}',
 
+  /* ══ 文字不进输入栏：交给 DSH 原生布局 + 输入栏透明 ══════════
+     输入的座位层（[data-composer-seat]）是单独的条，吸在容器底部，
+     聊天内容在它上方的滚动区滚动，本来就不会跑进输入栏区域。
+     输入栏透明后，用户透过它看到的就是面板/桌面。
+
+     ⚠ 这里**不加** padding / margin / mask：
+       padding 会顶得座位层离开底部（实测：输入栏上移），
+       mask 要么跟着内容滚（基准是内容高度）、要么连座位层一起裁掉。
+       保持 DSH 原生布局，输入栏才稳在底部。
+       若文字仍与输入栏重叠，那说明滚动区高度覆盖了输入栏区域，
+       需另找方式（见 paint() 里的处理）。 */
   /* ── 三列：唯一铺色的地方 ───────────────────────────────────
      alpha 默认 0 = 完全透明（纯亚克力）。
      想给问答正文加一点点底，把 alpha 调到 10–16 即可
@@ -413,47 +432,29 @@ const GLASS_STYLE = [
        ① backdrop-filter（卡片本身）  —— 糊开背后内容（若有）
        ② backdrop-filter（::after）   —— 再糊一层，叠加更厚
        ③ 极淡白雾（background-image）—— 8%，只提亮一点，不盖模糊 */
+  /* ══ 输入栏：完全透明（mask 模式）═══════════════════════════
+     用户最终选定的方案：不做模糊、不铺底色。
+     输入栏区只是一块"空的透明区域"，看到的就是它背后的面板/桌面。
+     文字不会出现在这里，是因为滚动容器加了 mask 裁切（见下面 D 段）。
+
+     ⚠ 这里刻意什么都不画：一旦有底色或模糊，它就与面板"不同层"了，
+       而用户要的是"输入栏看上去和面板是一层"。 */
   'html[data-dsh-acrylic-light] [data-composer-card],',
   'html[data-dsh-acrylic-light] [class*="RlGAzG_card"]{',
-  /* ① 白雾：必须很淡。28% 会盖住模糊，8% 刚好提亮又不遮。
-        ⚠ 这里只有一层渐变，不加噪点 —— 颗粒会拉高边缘能量，
-          等于用假细节盖住真模糊。 */
   '  background:transparent!important;',
-  '  background-image:linear-gradient(180deg,',
-  '      rgb(255 255 255 / var(--acrylic-frost-top, 8%)) 0%,',
-  '      rgb(255 255 255 / var(--acrylic-frost-mid, 5%)) 42%,',
-  '      rgb(255 255 255 / var(--acrylic-frost-bottom, 3%)) 100%)!important;',
-  /* ② 边缘：0.5px 发丝描边 */
-  '  border:.5px solid rgb(var(--acrylic-edge) / 24%)!important;',
-  /* ③ 厚度感：上缘内高光 + 底部内阴影 + 外投影 */
-  '  box-shadow:',
-  '    inset 0 1px 0 rgb(255 255 255 / 30%),',
-  '    inset 0 -1px 0 rgb(255 255 255 / 9%),',
-  '    inset 0 0 0 .5px rgb(255 255 255 / 11%),',
-  '    0 10px 32px -10px rgb(0 0 0 / 40%),',
-  '    0 2px 8px -3px rgb(0 0 0 / 25%)!important;',
-  /* ④ 模糊**不挂在本体上**。
-     ⚠ 这是踩过的坑：backdrop-filter 挂在卡片本体时，模糊作用在整个元素上，
-       连输入栏里的文字一起糊掉（用户反馈「输入栏的文字也模糊了」）。
-     正确做法：本体设 none，模糊交给下面的 ::after —— 它用 z-index:-1
-     压在卡片内容之下，只糊背后的历史消息。 */
+  '  background-image:none!important;',
   '  backdrop-filter:none!important;',
   '  -webkit-backdrop-filter:none!important;',
-  /* ⑤ 定位上下文（::after 的 inset:0 需要它） */
+  '  border:0!important;',
+  '  box-shadow:none!important;',
   '  position:relative;',
   '}',
-  /* ── 唯一的模糊层（::after）──
-     z-index:-1 让它在卡片内容之下，所以：
-       · 背后的历史消息被糊开  ✅
-       · 输入栏自己的文字清晰  ✅ */
-  'html[data-dsh-acrylic-light] [data-composer-card]::after,',
-  'html[data-dsh-acrylic-light] [class*="RlGAzG_card"]::after{',
-  '  content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;',
-  '  pointer-events:none;',
-  '  background:transparent;',
-  '  backdrop-filter:blur(var(--acrylic-blur, 28px)) saturate(var(--acrylic-saturate, 140%)) brightness(1.02);',
-  '  -webkit-backdrop-filter:blur(var(--acrylic-blur, 28px)) saturate(var(--acrylic-saturate, 140%)) brightness(1.02);',
-  '}',
+  /* ── 输入栏 ::after：已移除 ─────────────────────────────────
+     这里原本是唯一的模糊层（backdrop-filter: blur），用来糊背后的聊天内容。
+     用户最终要的效果是「输入栏和面板同一层、完全透明的」，
+     所以整层删除 —— 只清卡片本体的 backdrop-filter 不够，
+     因为真正在做事的是这个伪元素。
+     文字不进入输入栏区域，改由聊天内容容器的 mask 裁切负责。 */
   /* 浅色主题：白玻璃在浅壁纸上会"看不见边界"，描边要更实。
      ⚠ 这里**不再**覆盖 background-image —— 噪点层是共用的，
        覆盖它会把噪点抹掉。白雾浓度由 paint() 按主题自动加倍，
@@ -609,6 +610,7 @@ const GLASS_STYLE = [
        2. 噪点是高频细节，铺在输入栏上会把 backdrop-filter 糊出来的
           柔和色块重新"打碎"，边缘能量回升 —— 等于用假细节盖住真模糊。
      磨砂的质感现在完全由「模糊 + 淡白雾」承担，表面更干净。 */
+
 ].join('')
 
 window.__ModuleLoader__.load({
@@ -649,34 +651,70 @@ window.__ModuleLoader__.load({
         let current = { ...DEFAULTS }
 
         /** 把配置写进 CSS 变量；关闭时摘掉属性，界面立刻恢复原生。 */
+        /**
+         * 把输入栏座(composerSeat)从滚动容器里"抬出来"到外层，成为 scrollBody 的兄弟。
+         *
+         * 为什么必须这样：输入栏座是 scrollBody(data-conversation-scroll) 的 sticky 子元素，
+         * 滚动窗的视觉范围因此一直延伸到输入栏背后(视觉下沿=窗口底)。
+         * 前一个版本想在 scrollBody 上挂 mask 把底部裁掉，结果把输入栏一起裁没了。
+         * 把座位抬到外面后，scrollBody 变成一个"纯滚动窗"，高度少了座位那一格，
+         * 滚动下界自然终止于输入栏上沿 —— overflow 在此硬裁文字，输入栏固定在下方，
+         * 文字永远进不了输入栏背后。这正是用户要的"底部裁切线在输入栏上方、位置固定"。
+         */
+        const seatDock = root.ownerDocument?.createElement('span')
+        const ensureLifted = () => {
+          if (!seatDock) return
+          try {
+            const scroll = root.ownerDocument?.querySelector('[data-conversation-scroll]')
+            const seat = scroll?.querySelector(':scope > [data-composer-seat]')
+            const host = scroll?.parentElement // = [data-conversation-content] (body)
+            if (!scroll || !seat || !host) return
+            if (seat.parentElement === host) return // 已在外面
+            seatDock.style.display = 'none'
+            seat.before(seatDock) // 原位置留记号，便于还原
+            host.append(seat)     // 抬到 body 末尾，成为 scrollBody 的兄弟
+          } catch (e) {
+            console.warn('[dsh-acrylic-light] 抬升座位失败', e)
+          }
+        }
+        const restoreSeat = () => {
+          try {
+            if (!seatDock) return
+            const scroll = root.ownerDocument?.querySelector('[data-conversation-scroll]')
+            if (!scroll) return
+            const seat = scroll.parentElement?.querySelector(':scope > [data-composer-seat]')
+            if (seat && seatDock.parentElement) {
+              seatDock.before(seat) // 放回原记号位置
+              seatDock.remove()
+            }
+            seatDock.remove()
+          } catch (e) {
+            console.warn('[dsh-acrylic-light] 归还座位失败', e)
+          }
+        }
+
         const paint = (state) => {
           current = { ...DEFAULTS, ...state }
           if (current.enabled === false) {
             root.removeAttribute('data-dsh-acrylic-light')
+            restoreSeat()
             return
           }
           root.setAttribute('data-dsh-acrylic-light', 'true')
+          ensureLifted()
           const set = (name, value) => root.style.setProperty(name, value)
           const clamp = (value, min, max) => {
             const n = Number(value)
             return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : min
           }
-          // 三个材质参数：白雾、模糊、提饱和。
-          // 白雾（frost）是最关键的 —— 没有它，输入栏就只剩一条白边。
-          const frost = clamp(current.frost, 0, 100)
-          // 浅色主题的白雾要浓得多：白底上 18% 的白几乎看不见，
-          // 而深色底上 18% 已经很明显。所以按主题给不同系数。
-          const dark = root.ownerDocument?.body?.hasAttribute('data-ds-dark-theme') ?? true
-          const k = dark ? 1 : 3.4
-          set('--acrylic-frost-top', `${Math.min(100, frost * k)}%`)
-          // 中段与底部逐级变薄，模拟玻璃板越往下越薄的光学效果
-          set('--acrylic-frost-mid', `${Math.min(100, frost * k * 0.55)}%`)
-          set('--acrylic-frost-bottom', `${Math.min(100, frost * k * 0.33)}%`)
-          set('--acrylic-blur', `${clamp(current.blur, 0, 64)}px`)
-          // 第二层亚克力的半径取第一层的一半：两层叠加时，
-          // 第二层只需"补一刀"，半径太大反而会糊成一片没有层次。
-          set('--acrylic-blur-2', `${clamp(current.blur, 0, 64) * 0.5}px`)
-          set('--acrylic-saturate', `${clamp(current.saturate, 100, 300)}%`)
+          // 壁纸层开关：加属性才会命中 html[data-dsh-acrylic-wallpaper]::before 的样式。
+          // ⚠ 这个属性是壁纸层能否显示的关键 —— 少了它，规则不匹配，页面什么都不会画。
+          if (current.wallpaper === false) {
+            root.removeAttribute('data-dsh-acrylic-wallpaper')
+          } else {
+            root.setAttribute('data-dsh-acrylic-wallpaper', 'true')
+            set('--acrylic-wallpaper-blur', `${clamp(current.wallpaperBlur, 0, 120)}px`)
+          }
         }
 
         const readLocal = () => {
@@ -702,19 +740,61 @@ window.__ModuleLoader__.load({
           }
         }
 
+        /* ── 壁纸加载 ──────────────────────────────────────────────
+           壁纸由宿主侧的路由提供（读取 Windows 的 TranscodedWallpaper）。
+           拿到后塞进 --acrylic-wallpaper，页面最底层那张 fixed 的 ::before
+           就会显示它 —— 这样 backdrop-filter 才有东西可糊。
+
+           为什么不用 file:// 直接引用：
+             页面跑在 dsh-app:// 协议下，file:// 会被安全策略拦掉。
+             走宿主 HTTP 路由是同源的，不受限制。 */
+        const WALLPAPER_URL = '/dsh-acrylic-light/wallpaper'
+        let wallpaperLoaded = false
+
+        const loadWallpaper = async () => {
+          if (wallpaperLoaded) return
+          try {
+            const response = await fetch(WALLPAPER_URL, { cache: 'no-cache' })
+            if (!response.ok) return
+            const blob = await response.blob()
+            if (blob.size === 0) return
+
+            // 转成 objectURL 比 base64 省内存（1MB 图转 base64 会涨到 1.37MB 字符串）
+            const objectUrl = URL.createObjectURL(blob)
+            root.style.setProperty('--acrylic-wallpaper', `url("${objectUrl}")`)
+            // 打标记：兜底渐变只在没有壁纸时生效
+            root.setAttribute('data-dsh-acrylic-wallpaper-ok', 'true')
+            wallpaperLoaded = true
+          } catch {
+            // 拿不到壁纸就用 CSS 渐变兜底，不影响其它效果
+          }
+        }
+
         // 首帧就上色，避免"先闪一下原生底色"
         paint(readLocal())
+        // 壁纸异步加载，不阻塞首帧
+        loadWallpaper()
+
+        // 校位：DSH 重渲染可能把座位放回滚动窗，用观察器钉住它在外层。
+        const rearranObserver = root.ownerDocument ? new MutationObserver(() => {
+          if (root.hasAttribute('data-dsh-acrylic-light')) ensureLifted()
+        }) : null
+        rearranObserver?.observe(document.body, { childList: true, subtree: true })
 
         ctx.effect(() => () => {
           disposeGlass()
           disposeControls()
           root.removeAttribute('data-dsh-acrylic-light')
-          for (const name of ['--acrylic-blur', '--acrylic-blur-2', '--acrylic-saturate']) {
+          root.removeAttribute('data-dsh-acrylic-wallpaper')
+          root.removeAttribute('data-dsh-acrylic-wallpaper-ok')
+          for (const name of ['--acrylic-wallpaper', '--acrylic-wallpaper-blur']) {
             root.style.removeProperty(name)
           }
+          rearranObserver?.disconnect()
+          restoreSeat()
         }, 'dsh-acrylic-light: paint')
 
-        /** 设置页：所有滑块都是即时生效的，改完不用重启。 */
+        /** 设置页：只保留「启用」开关。 */
         const Section = () => {
           const [state, setState] = React.useState(readLocal())
 
@@ -728,24 +808,6 @@ window.__ModuleLoader__.load({
           }
 
           const enabled = state.enabled !== false
-
-          const slider = (key, labelKey, hintKey, min, max, step, unit) =>
-            React.createElement('div', { className: 'acrylic-card' },
-              React.createElement('div', { className: 'acrylic-row' },
-                React.createElement('span', { className: 'acrylic-label' }, t(labelKey)),
-                React.createElement('span', { className: 'acrylic-value' }, `${state[key]}${unit}`)),
-              React.createElement('input', {
-                className: 'acrylic-slider',
-                type: 'range',
-                min,
-                max,
-                step,
-                value: state[key],
-                disabled: !enabled,
-                'aria-label': t(labelKey),
-                onChange: (event) => update({ [key]: Number(event.target.value) }),
-              }),
-              React.createElement('div', { className: 'acrylic-hint' }, t(hintKey)))
 
           return React.createElement('div', { className: 'acrylic-root' },
             React.createElement('div', { className: 'acrylic-head' },
@@ -763,10 +825,6 @@ window.__ModuleLoader__.load({
                   onClick: () => update({ enabled: !enabled }),
                 }, React.createElement('span', { className: 'acrylic-dot' }), enabled ? 'ON' : 'OFF')),
               React.createElement('div', { className: 'acrylic-hint' }, t('enableHint'))),
-
-            slider('frost', 'frost', 'frostHint', 0, 60, 1, '%'),
-            slider('blur', 'blur', 'blurHint', 0, 64, 1, 'px'),
-            slider('saturate', 'saturate', 'saturateHint', 100, 300, 5, '%'),
 
             React.createElement('div', { className: 'acrylic-actions' },
               React.createElement('button', {
