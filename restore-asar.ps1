@@ -24,7 +24,7 @@ if (-not $asar) {
     'C:\Program Files\DeepSeek Harness\resources\app.asar'
     'C:\Program Files (x86)\DeepSeek Harness\resources\app.asar'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\resources\app.asar')
-    'E:\gongju\deepseek\resources\app.asar'
+    'C:\Program Files\DeepSeek Harness\resources\app.asar'
   )
 }
 if ($asar -eq $null) { Write-Host '找不到 app.asar，请用 -Asar 指定'; exit 2 }

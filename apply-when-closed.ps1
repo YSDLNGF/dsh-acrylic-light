@@ -43,7 +43,6 @@ if (-not $asar) {
     'C:\Program Files (x86)\DeepSeek Harness\resources\app.asar'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\resources\app.asar')
     (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness\resources\app.asar')
-    'E:\gongju\deepseek\resources\app.asar'
   )
 }
 
@@ -55,7 +54,6 @@ if (-not $exe) {
     'C:\Program Files (x86)\DeepSeek Harness\DeepSeek Harness.exe'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\DeepSeek Harness.exe')
     (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness\DeepSeek Harness.exe')
-    'E:\gongju\deepseek\DeepSeek Harness.exe'
   )
 }
 

@@ -35,7 +35,12 @@ const LOCAL_KEY = 'dsh-acrylic-light:prefs'
  *        模糊只能让背后的东西变糊，不会让表面变得"有材质"。
  *
  * 输入栏就是一层透出桌面的玻璃，不暴露可调参数 ——
- * 设置页只保留「启用」开关（下方的 frost/blur/saturate 滑块已按用户要求移除）。
+ * 设置页只保留「启用」开关（frost/blur/saturate 已移除）。
+
+ * 文字裁切：用 JS 把输入栏座从滚动容器里「抬」出来，文字就硬断在
+ * 输入栏上沿（见 paint() 的 ensureLifted()，以及 GLASS_STYLE 里
+ * 给 seat 的 absolute 定位规则）。蒙版方案已废弃（裁切线随文本滚、
+ * 且会误削消息）。
  */
 const DEFAULTS = {
   enabled: true,
@@ -87,6 +92,9 @@ const CONTROL_STYLE = [
   '.acrylic-actions{display:flex;flex-wrap:wrap;gap:8px}',
   '.acrylic-button{padding:6px 12px;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}',
   '.acrylic-button:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+  '.acrylic-seg{display:flex;gap:8px}',
+  '.acrylic-seg button{flex:1;padding:7px 10px;border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}',
+  '.acrylic-seg button[aria-selected=true]{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary-soft,rgba(120,150,255,.14))}',
   '.acrylic-note{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-primary)}',
 ].join('')
 
@@ -382,6 +390,24 @@ const GLASS_STYLE = [
   '  background-image:none!important;',
   '}',
 
+  /* ══ 文字硬裁在输入栏上沿：把输入栏座抬成滚动容器的兄弟 ═══
+     做法：JS 把 seat 从 scrollBody 里 append 到 [data-conversation-content]
+     （会话面板 body）。body 是 flex-direction:column，seat 自带 flex:none
+     （DSH 原生高度），于是 flex 布局会**自动把 scrollBody 压缩到
+     "输入栏上沿"** —— 滚动容器在 seat 顶部截止，聊天内容滚到底就
+     硬断在输入栏上沿，不会钻进输入栏背后。这是真正的"硬裁"。
+
+     ⚠ 不要给 seat 设 position:absolute —— 会把它移出 flex 流，
+       scrollBody 就又填满到面板底部，裁切失效（实测"没有裁切"）。
+     保持 seat 在流内作 flex 兄弟即可（DSH seat 自带 flex:none + sticky，
+     作为列尾兄弟它就是原高度在底部）。 */
+  'html[data-dsh-acrylic-light] [data-composer-seat]{',
+  '  flex:none!important;',
+  '}',
+  'html[data-dsh-acrylic-light] [data-conversation-content]{',
+  '  position:relative!important;',
+  '}',
+
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
      这里曾经加过负 margin，想把聊天内容「拉到输入框背后」，
      好让 backdrop-filter 有东西可糊。结果是**输入栏边框被拖到了
@@ -650,47 +676,88 @@ window.__ModuleLoader__.load({
 
         let current = { ...DEFAULTS }
 
-        /** 把配置写进 CSS 变量；关闭时摘掉属性，界面立刻恢复原生。 */
         /**
-         * 把输入栏座(composerSeat)从滚动容器里"抬出来"到外层，成为 scrollBody 的兄弟。
+         * 文字裁切 —— 把输入栏座从滚动容器里"抬出去"。
          *
-         * 为什么必须这样：输入栏座是 scrollBody(data-conversation-scroll) 的 sticky 子元素，
-         * 滚动窗的视觉范围因此一直延伸到输入栏背后(视觉下沿=窗口底)。
-         * 前一个版本想在 scrollBody 上挂 mask 把底部裁掉，结果把输入栏一起裁没了。
-         * 把座位抬到外面后，scrollBody 变成一个"纯滚动窗"，高度少了座位那一格，
-         * 滚动下界自然终止于输入栏上沿 —— overflow 在此硬裁文字，输入栏固定在下方，
-         * 文字永远进不了输入栏背后。这正是用户要的"底部裁切线在输入栏上方、位置固定"。
+         * 为什么这么做：纯 CSS 蒙版方案的裁切线是相对消息容器的，会随文本滚动，
+         * 钉不到屏幕固定位置，且会误削消息 —— 已废弃。要"固定位置 + 文字不进
+         * 输入栏"且输入栏透明，唯一可靠办法是把输入栏座从滚动容器里移出来，
+         * 让滚动容器的高度不再包含输入栏 —— 聊天内容滚动到底就正好止于输入栏上沿。
+         *
+         * 风险：composerSeat 是 React 托管的孩子（scrollBody.children = [Views, seat]），
+         * 移动它会和 React 的 fiber 树产生分歧。历史教训：在初次渲染期间热移动
+         * （rAF/setTimeout 内 + MutationObserver 高频回抬）会在冷启动时破坏首屏 →
+         * 主面板空白。这里改用「更晚、更轻、防抖」的策略：
+         *   1. 移动只在 paint() 里触发（插件每次 paint 时）；
+         *   2. 初次移动推迟到会话面板确认渲染稳定之后；
+         *   3. 之后用**防抖**的 observer 在 React 把 seat 放回时慢速回抬，
+         *      不贴身紧咬，避免在 React commit 的中途插手。
          */
-        const seatDock = root.ownerDocument?.createElement('span')
-        const ensureLifted = () => {
-          if (!seatDock) return
-          try {
-            const scroll = root.ownerDocument?.querySelector('[data-conversation-scroll]')
-            const seat = scroll?.querySelector(':scope > [data-composer-seat]')
-            const host = scroll?.parentElement // = [data-conversation-content] (body)
-            if (!scroll || !seat || !host) return
-            if (seat.parentElement === host) return // 已在外面
-            seatDock.style.display = 'none'
-            seat.before(seatDock) // 原位置留记号，便于还原
-            host.append(seat)     // 抬到 body 末尾，成为 scrollBody 的兄弟
-          } catch (e) {
-            console.warn('[dsh-acrylic-light] 抬升座位失败', e)
-          }
+        let observer = null
+        const findBody = () => document.querySelector('[data-conversation-content]')
+        const findSeat = () => document.querySelector('[data-conversation-content] [data-composer-seat]')
+        const findScroll = () => document.querySelector('[data-conversation-content] [data-conversation-scroll]')
+
+        const liftSeat = () => {
+          const seat = findSeat()
+          const host = findBody()
+          const scroll = findScroll()
+          if (!seat || !host || !scroll || scroll === seat) return false
+          if (seat.parentElement === host) return true // 已在正确位置
+          // 插到 scrollBody 之后（WidthControls 之前）：flex 顺序 scroll→seat→…
+          // 让 body 的 flex 布局把 scrollBody 压缩到 seat 上沿（真正产生硬裁）。
+          scroll.insertAdjacentElement('afterend', seat)
+          return true
         }
+
+        let liftTimer = null
+        const scheduleLift = () => {
+          if (liftTimer !== null) return
+          liftTimer = window.setTimeout(() => {
+            liftTimer = null
+            try { liftSeat() } catch {}
+          }, 250)
+        }
+
+        const startObserver = () => {
+          if (observer) return
+          observer = new MutationObserver(() => scheduleLift())
+          const scroll = findScroll()
+          if (scroll) observer.observe(scroll, { childList: true, subtree: false })
+        }
+
+        const stopObserver = () => {
+          if (observer) { observer.disconnect(); observer = null }
+          if (liftTimer !== null) { window.clearTimeout(liftTimer); liftTimer = null }
+          if (ensureLifted && ensureLifted.cancelBoot) ensureLifted.cancelBoot()
+        }
+
         const restoreSeat = () => {
-          try {
-            if (!seatDock) return
-            const scroll = root.ownerDocument?.querySelector('[data-conversation-scroll]')
-            if (!scroll) return
-            const seat = scroll.parentElement?.querySelector(':scope > [data-composer-seat]')
-            if (seat && seatDock.parentElement) {
-              seatDock.before(seat) // 放回原记号位置
-              seatDock.remove()
+          stopObserver()
+          const seat = findSeat()
+          const scroll = findScroll()
+          if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
+        }
+
+        const ensureLifted = () => {
+          // 冷启动保护：初次移动与监听都推迟，等 React 首屏渲染稳定后再动，
+          // 避免在初次 reconciliation 中途移动 seat → 主面板空白。
+          // 该延迟仅适用于"首次"，之后复用 scheduleLift 的短防抖。
+          if (!ensureLifted.inited) {
+            ensureLifted.inited = true
+            let bootTimer = null
+            const boot = () => {
+              bootTimer = null
+              try { liftSeat() } catch {}
+              startObserver()
             }
-            seatDock.remove()
-          } catch (e) {
-            console.warn('[dsh-acrylic-light] 归还座位失败', e)
+            bootTimer = window.setTimeout(boot, 900)
+            ensureLifted.cancelBoot = () => {
+              if (bootTimer !== null) { window.clearTimeout(bootTimer); bootTimer = null }
+            }
+            return
           }
+          startObserver(); scheduleLift()
         }
 
         const paint = (state) => {
@@ -775,11 +842,8 @@ window.__ModuleLoader__.load({
         // 壁纸异步加载，不阻塞首帧
         loadWallpaper()
 
-        // 校位：DSH 重渲染可能把座位放回滚动窗，用观察器钉住它在外层。
-        const rearranObserver = root.ownerDocument ? new MutationObserver(() => {
-          if (root.hasAttribute('data-dsh-acrylic-light')) ensureLifted()
-        }) : null
-        rearranObserver?.observe(document.body, { childList: true, subtree: true })
+        // 注：座位不再移动（见 ensureLifted 停用说明），所以不需要
+        // 座位位置由 ensureLifted 的 MutationObserver 在 lift 时校正。
 
         ctx.effect(() => () => {
           disposeGlass()
@@ -790,7 +854,6 @@ window.__ModuleLoader__.load({
           for (const name of ['--acrylic-wallpaper', '--acrylic-wallpaper-blur']) {
             root.style.removeProperty(name)
           }
-          rearranObserver?.disconnect()
           restoreSeat()
         }, 'dsh-acrylic-light: paint')
 

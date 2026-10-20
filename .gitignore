@@ -1,8 +1,20 @@
 # 备份与运行时产物
 backups/
+releases/dsh-acrylic-light-patch/
 *.log
 *.pid
 .winrect.json
+
+# 本机开发/临时脚本（含本机绝对路径或备份时间戳，不宜进仓库）
+.install.ps1
+install-on-close.mjs
+install-patch.cmd
+apply-when-closed.cmd
+remove-patch.cmd
+revert-patch.ps1
+clip-compare.html
+*.glass-new
+*.glass-original
 
 # 调试中间文件
 _dryrun-main.js

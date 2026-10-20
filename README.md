@@ -7,7 +7,7 @@
 > DeepSeek Harness 桌面版的**透明轻薄亚克力**主题。  
 > 窗口透出桌面壁纸，由 Windows 系统 Acrylic 材质负责模糊；页面分层雾面，输入栏与浮层保持可读。
 
-[效果](#效果) · [安装](#安装) · [调参](#调参) · [卸载](#卸载) · [已知限制](#已知限制)
+[效果](#效果) · [安装](#安装) · [插件市场](#插件市场上架) · [卸载](#卸载) · [已知限制](#已知限制)
 
 ---
 
@@ -27,7 +27,7 @@
 | --- | --- |
 | 主面板 / 顶栏 | 完全透明，透出壁纸，模糊由系统 Acrylic 完成 |
 | 侧栏 / 三列 | 极淡底色（8%–10%），保留层次 |
-| 输入栏 | `rgb(16 18 22 / 92%)` 实色雾面，与背景明确分层 |
+| 输入栏 | 透明雾面玻璃，文字在输入栏上沿**硬断**（不钻进输入栏背后） |
 | 悬停预览 / 菜单 / 工具提示 | `rgb(20 22 28 / 18%)` + `blur(12px)` |
 | 设置面板 / 对话框 | `rgb(26 28 34 / 78%)` + `blur(24px)` |
 | 代码块 | `rgb(20 22 28 / 55%)`，保证长段可读 |
@@ -35,31 +35,34 @@
 > 深色主题下文字会自动提亮：`label-primary/secondary/tertiary` 及底层
 > `bluish-200/300/400/600/700` 一并改为白色系，否则深底上发灰。
 
----
+## 为什么窗口能透出壁纸
 
-## 先分清两个「插件」入口
-
-DSH 里有两个容易混淆的地方，安装方式完全不同：
-
-| 入口 | 是什么 | 本插件怎么装 |
-| --- | --- | --- |
-| **设置 → 「插件」页 → 添加插件** | DSH **内置**的插件管理页，用 `dsh plugin add` 安装任意来源 | ✅ **推荐**，粘贴仓库地址即可 |
-| **插件市场**（dsh-market） | 一个**第三方社区插件**，它有自己的插件目录与详情页 | ⏳ 需先被该目录收录（见下文） |
-
-两者的关系是：插件市场本身也是装在「插件」页里的一个插件。它展示什么，取决于它自己的目录文件，与内置的「添加插件」无关。
-
-**所以：现在就能装，用第一种方式。** 想让它出现在插件市场里被搜到，需要走第三种方式（提交收录）。
+窗口材质（`backgroundMaterial`）是 Electron `BrowserWindow` 的**构造参数**，
+只存在于主进程。插件跑在独立的 Node 进程里，`require('electron')` 直接报
+`Cannot find module 'electron'`，拿不到窗口对象 —— 所以**没有纯插件方案**，
+必须给 `app.asar` 打一次补丁（同类插件也一样）。本插件把「打补丁」做成了
+**一键脚本**，双击一次即可完成：退出→等字节补丁→校验→自动重启。
 
 ---
 
 ## 安装
 
-### 第 1 步：在「插件」页添加（现在就能用）
+本插件**已在插件市场（dsh-market）上架**，也支持从 GitHub 直接安装。二选一即可。
 
-1. 打开 Harness → **设置**
-2. 进入 **插件**（内置的那一页，不是插件市场）
-3. 点 **「添加插件」**
-4. 在弹出的输入框里填下面任意一种：
+### 方式一：从插件市场安装（推荐，最简单）
+
+1. 打开 Harness → **设置 → 插件**，进入**插件市场**
+2. 切到**「主题」**分类，搜 **`dsh-acrylic-light`**（或「透明亚克力」）
+3. 点击**安装**，确认来源，重启提示后重启
+
+安装完成后进入 **设置 → 通用 → 透明亚克力**，把「启用」打开。
+
+> 插件市场安装**只装页面一半**。窗口要透出壁纸还需要补丁 —— 见下方「第 2 步补丁」。
+
+### 方式二：从 GitHub 地址安装
+
+1. 打开 Harness → **设置 → 插件**（内置那一页，不是插件市场）
+2. 点 **「添加插件」**，输入：
 
    ```
    https://github.com/YSDLNGF/dsh-acrylic-light
@@ -72,37 +75,17 @@ DSH 里有两个容易混淆的地方，安装方式完全不同：
    github:YSDLNGF/dsh-acrylic-light
    ```
 
-   > 输入框提示是「输入插件的包名、GitHub 仓库地址或本地目录路径」。
-   > 本插件尚未发布到 npm，所以请用 **GitHub 地址**，不要填包名。
+   > Harness 会 clone 到 `~/.dsh/profiles/desktop/node_modules/dsh-acrylic-light`、
+   > 登记 `bundles`，然后提示重启。
 
-5. 点「安装」，确认来源，Harness 会自己 clone 到
-   `~/.dsh/profiles/desktop/node_modules/dsh-acrylic-light`、登记 `bundles`，然后提示重启
+### 第 2 步（两种方式都需做）：让窗口透出壁纸 —— 双击一次即可
 
-重启后进入 **设置 → 通用 → 透明亚克力**，看到滑块就说明页面那半边成功了。
+只装插件只改了页面样式，窗口本身仍是不透明的。这一步让壁纸透出来：
 
-**首次安装时会在右下角弹出一个一次性公告**，提醒你还需完成第 2 步（下载窗口材质补丁）。
-点「知道了」后不再出现；想再看一次，在控制台执行：
+**下载补丁包 zip 解压，然后双击其中的 `enable-transparency.cmd`。**  
+补丁包直接把整套脚本打包好了，无需整仓下载：[`releases/dsh-acrylic-light-patch.zip`](releases/dsh-acrylic-light-patch.zip)。
 
-```js
-localStorage.removeItem('dsh-acrylic-light:first-run-notice')
-```
-
-> **安装格式依据**：`@deepseek-ai/dsh-plugin-manager` 的 `parseInstallSpec()`
-> 接受 npm 包名、`file:`/绝对路径、`*.tgz`、以及 git 地址
-> （`github:owner/repo`、`git+https://…`、或宿主仓库 URL）。
-> 本仓库根 `package.json` 已声明 `dsh.bundle`，满足「可安装」的判定条件。
-
-### 第 2 步：让窗口透出壁纸（双击一次即可）
-
-第 1 步只装了页面样式，窗口本身仍是不透明的 —— 壁纸透不出来。
-
-原因是硬性的：窗口材质 `backgroundMaterial` 是 Electron `BrowserWindow` 的
-**构造参数**，只存在于主进程。插件跑在独立的 Node 进程里，
-`require('electron')` 直接报 `Cannot find module 'electron'`，拿不到窗口对象
-（实测，见「已知限制」）。所以**没有纯插件方案**，必须改 `app.asar`。
-同类插件（如 [dsh-desktop-glass](https://github.com/JianHeShui/dsh-desktop-glass)）都一样。
-
-**做法：下载本仓库，双击 `enable-transparency.cmd`。**
+> 或者 clone 本仓库后，直接在仓库根目录双击 `enable-transparency.cmd`（内容相同）。
 
 它会：
 
@@ -114,7 +97,7 @@ localStorage.removeItem('dsh-acrylic-light:first-run-notice')
 
 **你只需要退出一次，剩下它自己完成。**
 
-> 不想双击也行，命令行等价：
+> 命令行等价：
 > ```
 > powershell -ExecutionPolicy Bypass -File .\apply-when-closed.ps1
 > ```
@@ -122,40 +105,17 @@ localStorage.removeItem('dsh-acrylic-light:first-run-notice')
 > 补丁只在改动 `main.js` 的几处属性，**文件总大小不变**（等字节修补），
 > 所以不会破坏 asar 的其他条目。锚点对不上时脚本直接失败退出，不动已安装文件。
 
-### 第 3 步：让它出现在插件市场（可选）
+---
 
-插件市场（dsh-market）的插件列表来自一份目录文件，托管在社区仓库
-[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)。
-**要被市场搜到，必须向那个仓库提交一个条目文件。** 这不是自动的。
+## 插件市场上架
 
-收录要求与当前状态：
+本插件已被 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+仓库收录，市场目录见
+[`data/plugins/YSDLNGF__dsh-acrylic-light.yml`](https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/data/plugins/YSDLNGF__dsh-acrylic-light.yml)，
+分类为 `theme`，会出现在插件市场的**「主题」Tab**，支持一键安装、切换、卸载。
 
-| 要求 | 状态 |
-| --- | --- |
-| 根 `package.json` 声明 `dsh.bundle` | ✅ `./plugin/cordis.patch.yml` |
-| 仓库有真实可用代码 | ✅ |
-| `screenshots.json` + 截图 | ✅ `assets/screenshot-1.jpg` |
-| 仓库 topic `dsh-plugin` | ✅ 已添加 |
-| 仓库创建满 1 天 | 由对方 CI 检查 |
-| 条目文件 | ⏳ 待提交 PR |
-
-需要提交的文件（单个 YAML，放在对方仓库 `data/plugins/` 下）：
-
-**`data/plugins/YSDLNGF__dsh-acrylic-light.yml`**
-
-```yaml
-url: https://github.com/YSDLNGF/dsh-acrylic-light
-name: YSDLNGF/dsh-acrylic-light
-category: theme
-description:
-  en: Windows Acrylic window material plus layered frosted panels for the DeepSeek Harness desktop app.
-  zh: DeepSeek Harness 桌面版的 Windows 亚克力窗口材质与分层雾面效果。
-```
-
-分类选 `theme` 的话，合并后会进入插件市场的**「主题」Tab**，
-支持一键安装、切换、卸载。
-
-合并后官网自动重建，市场里就能搜到了。
+> 仓库自带的 `contrib/YSDLNGF__dsh-acrylic-light.yml` 是提交给市场的源文件，
+> 与市场上线版保持一致。
 
 ---
 
@@ -173,30 +133,45 @@ powershell -ExecutionPolicy Bypass -File .\restore-asar.ps1
 
 两者都做完再重启，恢复原生外观。
 
+> 卸载时若提示文件被占用（DSH 正在运行），重启后运行
+> `cleanup-uninstall.ps1` 清理残留即可。
+
 ---
 
-## 调参
+## 设置与实时调参
 
-两种方式，均**实时生效，无需重启**：
+**设置页**：`设置 → 通用 → 透明亚克力`，只保留**「启用」**开关。关闭即恢复原生外观。
 
-**控制台**（F12 → Console）：
+**控制台实时调参**（F12 → Console，无需重启）：
 
 ```js
-glass()                      // 看当前参数
-glass({ alpha: 92 })         // 浮层/输入栏厚度，越大越实
-glass({ noise: 4 })          // 亚克力颗粒感
-glass({ enabled: false })    // 一键关闭
-glass.reset()                // 回默认
+glass()                    // 看当前参数
+glass({ enabled: false })  // 一键关闭
+glass.reset()              // 回默认
 ```
 
-**设置页**：`设置 → 通用 → 透明亚克力`，带滑块。
+> 往版有 `alpha` / `noise` 滑块，已在视觉方案稳定后移除。想改配色直接编辑
+> `plugin/client.js` 顶部的 `GLASS_STYLE`，每个值旁都注明了由来。
 
-| 参数 | 默认 | 说明 |
+---
+
+## 这个仓库里都有什么
+
+`plugin/` 是插件本体，其余是透明的补丁工具与安装脚本。**没有构建步骤**，即插即用：
+
+| 文件 | 作用 | 需要编译吗 |
 | --- | --- | --- |
-| `alpha` | 92 | 浮层与输入栏的雾面厚度。92 是实测最平衡的一档 |
-| `noise` | 3.2 | 亚克力细微噪点，纯色平板没有"薄"感 |
+| `plugin/client.js` | 插件本体（页面样式 + 输入栏硬裁） | ❌ |
+| `plugin/index.js` | 插件宿主半部（提供桌面壁纸路由） | ❌ |
+| `patch-asar.mjs` | 给 `app.asar` 打窗口材质补丁的工具 | ❌ Node 直接跑 |
+| `enable-transparency.cmd` | 一键：等退出→打补丁→校验→重启 | ❌ 双击即可 |
+| `apply-when-closed.ps1` | 上面的脚本主体 | ❌ |
+| `restore-asar.ps1` | 还原补丁 | ❌ |
+| `verify-asar.mjs` | 校验补丁是否写进归档 | ❌ |
+| `install.mjs` / `uninstall.mjs` | 命令行安装 / 卸载插件 | ❌ |
+| `卸载.cmd` | 双击卸载入口 | ❌ |
 
-改色值请直接编辑 `plugin/client.js` 顶部的 `GLASS_STYLE`，每个值旁都注明了由来。
+用 Node 18+ 或 PowerShell 即可。**没有构建步骤。**
 
 ---
 
@@ -206,29 +181,15 @@ glass.reset()                // 回默认
   的**构造参数**，而插件宿主跑在独立 Node 进程里 —— `require('electron')`
   直接报 `Cannot find module 'electron'`，拿不到窗口对象。
   Electron 30+ 的 `win.setBackgroundMaterial()` 运行时 API 同样需要窗口对象，
-  这条路也不通。所以「透出桌面壁纸」只能靠第 2 步改 `app.asar`。
+  这条路也不通。所以「透出桌面壁纸」只能靠补丁改 `app.asar`。
 - **窗口材质补丁在 Harness 更新后失效**。更新会覆盖 `app.asar`，
   重跑一次 `apply-when-closed.ps1`（或 `node patch-asar.mjs --asar <路径>`）即可。
 - **改的是宿主程序**。请自行评估风险；本仓库提供备份与还原路径，
   且补丁脚本在锚点不匹配时会直接退出、不动已安装文件。
 - **Acrylic 失焦会变实**。Windows 降级材质行为，无法绕过。
   介意可改用 `-Material mica`。
-
----
-
-## 需要自己编译安装吗
-
-不需要。本仓库是**即插即用**的 DSH 插件，不是需要 build 的前端项目：
-
-| 文件 | 作用 | 需要编译吗 |
-| --- | --- | --- |
-| `package.json` | 根 manifest（声明 `dsh.bundle`，供市场/命令行安装） | ❌ |
-| `plugin/` | 插件本体（页面半边） | ❌ 直接复制 |
-| `patch-asar.mjs` | 改 `app.asar` 的工具 | ❌ Node 直接跑 |
-| `apply-when-closed.ps1` | 自动化：等退出→打补丁→重启 | ❌ |
-| `install.mjs` / `uninstall.mjs` | 命令行方式装卸 | ❌ |
-
-用 Node 18+ 和 PowerShell 即可，**没有构建步骤**。
+- **输入栏硬裁依赖移动 React 节点**。聊天内容滚到输入栏上沿会被硬切，
+  这是输入栏透明的必然代价；冷启动已做防抖动保护，正常情况下重启不空白。
 
 ---
 
@@ -246,7 +207,10 @@ bug 定位到 `backdrop-filter` 创建包含块、到最终的分层雾面方案
 **也走了不少弯路。** 曾经连续多轮在错误假设上打转，以为调
 `backdrop-filter` 的 blur 值就能糊掉背后的文字，直到做像素测量才发现
 它从未生效；也曾把"插件市场"和内置的"添加插件"混为一谈，
-写出了错误的安装说明。这些失败结论都被写进了代码注释和「已知限制」，
+写出了错误的安装说明；还曾用「纯 CSS 蒙版」和「绝对定位」两种方式裁输入栏，
+要么切线随文本滚动、要么输入栏不再压缩滚动容器而裁切失效，
+直到改用「把输入栏座作为 flex 兄弟」才真正实现固定位置硬裁。
+这些失败结论都被写进了代码注释和「已知限制」，
 因为**知道什么行不通，和知道什么行得通同样有用**。
 
 如果你也在做类似的事，希望这个仓库能替你省掉那些来回试错的夜晚。
