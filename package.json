@@ -17,8 +17,6 @@
     "verify-asar.mjs",
     "install.mjs",
     "uninstall.mjs",
-    "uninstall-all.mjs",
-    "卸载.cmd",
     "apply-when-closed.ps1",
     "restore-asar.ps1",
     "README.md",

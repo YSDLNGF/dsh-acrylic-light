@@ -22,21 +22,18 @@
 
 const NS = 'dsh-acrylic-light'
 const LOCAL_KEY = 'dsh-acrylic-light:prefs'
+/** 首次使用公告的「已读」标记，只存一次，之后不再打扰。 */
+const NOTICE_KEY = 'dsh-acrylic-light:first-run-notice'
 
 /** 默认值：全透明，和顶栏完全一致（纯亚克力）。 */
 const DEFAULTS = {
   enabled: true,
-  // 输入栏不透明度（%）：0 = 完全透明（只剩描边），100 = 完全不透明。
-  // 默认 46：既有玻璃质感，又能压住背后的文字。
-  alpha: 46,
+  // 面板额外底色（%）。0 = 完全透明，和顶栏一样是纯亚克力。
+  // 大于 0 会给面板蒙一层深色 —— 注意半透明会叠出灰，
+  // 所以默认 0，只有在文字压在浅色壁纸上读不清时才往上加一点。
+  alpha: 0,
   // 噪点强度（%）。亚克力有细微颗粒感，纯色平板没有，加一点点能显著"像"。
   noise: 3.2,
-  // 输入栏磨砂的模糊半径（px）。0 = 关闭。
-  // ⚠ 页面背景是全透明的，backdrop-filter 取不到不透明像素，
-  //   所以这条模糊在本插件里大概率不生效 —— 真正保证可读的是 alpha。
-  frost: 16,
-  // 磨砂的饱和度。玻璃会把背后的颜色"提纯"。
-  saturate: 1.8,
 }
 
 const DICTIONARIES = {
@@ -46,13 +43,19 @@ const DICTIONARIES = {
     intro: '窗口透出桌面壁纸，由 Windows Acrylic 材质提供模糊。下列参数实时生效。',
     enable: '启用',
     enableHint: '关闭后恢复 DSH 原生外观（窗口材质仍在，只是页面不再透明）。',
-    alpha: '输入栏不透明度',
-    alphaHint: '0 = 完全透明（只剩一圈玻璃边），100 = 完全不透明（实心板）。',
+    alpha: '面板不透明度',
+    alphaHint: '越低越透。建议 18–32：再低文字会开始发虚，再高就接近实心。',
     noise: '颗粒感',
     noiseHint: '亚克力的细微噪点，让表面不像一块塑料。0 关闭。',
-    frost: '输入栏磨砂',
-    frostHint: '历史消息经过输入栏背后时的模糊半径。0 = 关闭。',
     reset: '恢复默认',
+    noticeTitle: '首次使用必读',
+    noticeBody:
+      '这个插件分成两部分：页面样式由插件市场负责，但“窗口透出桌面壁纸”需要替换一个窗口材质补丁。'
+      + '补丁没法随插件一起安装，请到 GitHub 仓库下载并运行（README 的“第 2 步”有具体说明）：',
+    noticeLink: 'github.com/YSDLNGF/dsh-acrylic-light',
+    noticeFoot:
+      '不装补丁也能用，只是窗口不会真的透明，主面板会显示为深色。此提示只出现一次。',
+    noticeOk: '知道了',
   },
   en: {
     nav: 'Transparent acrylic',
@@ -60,13 +63,21 @@ const DICTIONARIES = {
     intro: 'The window shows the desktop wallpaper; Windows Acrylic supplies the blur. Changes apply live.',
     enable: 'Enable',
     enableHint: 'Off restores the stock DSH look (the window material stays).',
-    alpha: 'Composer opacity',
-    alphaHint: '0 = fully transparent (just a glass edge), 100 = fully opaque (solid plate).',
+    alpha: 'Panel opacity',
+    alphaHint: 'Lower is more transparent. 18–32 works best.',
     noise: 'Grain',
     noiseHint: 'Fine acrylic grain so the surface is not a flat plastic sheet. 0 disables.',
-    frost: 'Composer frost',
-    frostHint: 'Blur radius applied to chat history passing behind the composer. 0 disables.',
     reset: 'Reset',
+    noticeTitle: 'Before you start',
+    noticeBody:
+      'This plugin comes in two parts. The page styling installs with the plugin, but showing the desktop '
+      + 'wallpaper through the window requires a window-material patch. The patch cannot ship with the plugin — '
+      + 'download and run it from the GitHub repo (see “Step 2” in the README):',
+    noticeLink: 'github.com/YSDLNGF/dsh-acrylic-light',
+    noticeFoot:
+      'The plugin works without it, but the window will not be transparent — the main panel stays dark. '
+      + 'This notice appears only once.',
+    noticeOk: 'Got it',
   },
 }
 
@@ -91,6 +102,32 @@ const CONTROL_STYLE = [
   '.acrylic-button{padding:6px 12px;border:.5px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}',
   '.acrylic-button:hover{background:var(--dsw-alias-interactive-bg-hover)}',
   '.acrylic-note{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-primary)}',
+
+  /* ── 首次使用公告：浮在页面右下角，只出现一次 ───────────────── */
+  '.acrylic-notice{position:fixed;right:20px;bottom:20px;z-index:2147483000;width:min(400px,calc(100vw - 40px));'
+    + 'box-sizing:border-box;padding:16px 18px;border-radius:14px;'
+    + 'border:.5px solid var(--dsw-alias-border-l2, rgb(255 255 255 / 18%));'
+    + 'background:var(--acrylic-notice-bg, rgb(24 26 32 / 96%));color:#fff;'
+    + 'box-shadow:0 18px 48px rgb(0 0 0 / 45%);'
+    + 'backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);'
+    + 'font-size:13px;line-height:1.65;animation:acrylic-notice-in .22s cubic-bezier(.22,1,.36,1)}',
+  '@keyframes acrylic-notice-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}',
+  '.acrylic-notice h3{margin:0 0 8px;font-size:14px;font-weight:600;line-height:1.4}',
+  '.acrylic-notice p{margin:0 0 10px;color:rgb(255 255 255 / 82%)}',
+  '.acrylic-notice code{display:block;margin:0 0 10px;padding:8px 10px;border-radius:8px;'
+    + 'background:rgb(255 255 255 / 8%);color:#9ecbff;font-family:var(--ds-font-family-code,Consolas,monospace);'
+    + 'font-size:12px;line-height:1.5;word-break:break-all;user-select:all}',
+  '.acrylic-notice footer{color:rgb(255 255 255 / 52%);font-size:12px;line-height:1.6}',
+  '.acrylic-notice button{margin-top:12px;width:100%;padding:8px 14px;border:0;border-radius:9px;'
+    + 'background:var(--dsw-alias-brand-primary,#3b82f6);color:#fff;font:inherit;font-size:13px;'
+    + 'font-weight:500;cursor:pointer}',
+  '.acrylic-notice button:hover{filter:brightness(1.08)}',
+  /* 浅色主题下换成白底，否则深底压在浅色页面上很突兀 */
+  'body:not([data-ds-dark-theme]) .acrylic-notice{background:rgb(255 255 255 / 97%);color:#0f1115;'
+    + 'border-color:rgba(15,17,21,.12)}',
+  'body:not([data-ds-dark-theme]) .acrylic-notice p{color:rgba(15,17,21,.82)}',
+  'body:not([data-ds-dark-theme]) .acrylic-notice code{background:rgba(15,17,21,.06);color:#0b62d6}',
+  'body:not([data-ds-dark-theme]) .acrylic-notice footer{color:rgba(15,17,21,.55)}',
 ].join('')
 
 /**
@@ -270,116 +307,37 @@ const GLASS_STYLE = [
   '  -webkit-backdrop-filter:blur(12px) saturate(160%);',
   '  border:.5px solid rgb(255 255 255 / 12%)!important;',
   '}',
-  /* ══ 输入栏：液态玻璃 ══════════════════════════════════════════
-     用户需求：做 iOS 26 那种液态玻璃；若做不到，把不透明度滑杆改成
-     「完全透明 ↔ 完全不透明」的连续控制。两者都实现了 ——
-     前者是观感模拟，后者是真实可用的滑杆。
+  /* ══ 输入框：雾面实色（最终采用）═══════════════════════════════
+     技术结论（实测得出，不是猜测）：
+       1. 主面板的通透来自 Windows Acrylic —— DWM 系统材质，
+          模糊的是**桌面壁纸**，CSS 无法调用；
+       2. backdrop-filter 理论上能模糊窗口内部背后的内容（双层亚克力），
+          但在本项目的透明窗口里实测采样不到：逐带测量边缘梯度，
+          输入框区域与上方正文同样锐利（18–21），完全没有被糊开的迹象。
+          伪元素、z-index、去 isolation、blur 加到 56px 都试过，无变化。
+       3. 所以采用「高不透明度雾面」：它不模糊，但层次明确，
+          且因为是实色（不掺壁纸色），不会发灰 —— 这是和低透明度方案的关键差别。
 
-     ══ 关于"边缘动态折射"（必须说实话）══
-     真正的折射需要 GPU 每帧采样背景像素再按法线位移，纯 CSS 做不到：
-     backdrop-filter 只提供 blur / saturate / brightness / contrast，
-     没有任何"位移背景像素"的能力。要硬做只能上 WebGL 采样，
-     在 Electron 透明窗口里性能极差且会和 DWM 系统材质打架。
-     所以这里用「透镜厚边」的四层视觉线索模拟：
-       ① 外侧 1px 亮边（玻璃与背景的分界）
-       ② 内侧 1px 亮线（厚边的内反射）
-       ③ 上缘高光 + 下缘阴影（光源在上方，形成厚度）
-       ④ 顶部镜面釉渐变（湿玻璃感）
-     观感接近，但不会真的弯折背后内容。
-
-     ══ 三条硬约束（来自 dsh-plugin-wallpaper-engine 的实测）══
-     ① 座位层 [data-composer-seat] 不许挂 backdrop-filter、不铺底板：
-        座位里装着卡片，卡片内部有 position:fixed 后代（AI 浏览器座位），
-        非 none 的 backdrop-filter 会让座位成为它们的包含块 ⇒ 按钮掉下去、
-        滚动容器多出幽灵高度。
-     ② 卡片本体也不能直接挂 backdrop-filter，原因同上。
-     ③ 只能挂在卡片的 ::before（伪元素没有 DOM 后代）。
-
-     ══ 关于模糊（重要）══
-     acrylic-light 把页面背景清成了完全透明，backdrop-filter 取样到的
-     是"空气"而不是画面 —— 参考插件实测注释原话：
-       「玻璃表面 backdrop-filter 的取样背景出现大面积透明像素，
-         本 Electron 合成器在该背景上不再有效模糊」。
-     所以这里的模糊只是"有就更好"，真正保证可读的是底色浓度。
-     滑杆 alpha 就是那个浓度：0 = 全透明，100 = 全不透明。 */
-  /* ── ① 座位层：只清底，绝不挂霜 ─────────────────────────── */
+     78% 与设置面板同档：读字清晰，观感是磨砂面板。 */
   'html[data-dsh-acrylic-light] [data-composer-seat],',
   'html[data-dsh-acrylic-light] [class*="Dc7zOa_composerSeat"]{',
   '  background:transparent!important;',
-  '  background-image:none!important;',
-  '  backdrop-filter:none!important;',
-  '  -webkit-backdrop-filter:none!important;',
   '}',
-  /* active 态 DSH 会盖一条渐变把滚进来的字盖掉，清掉 */
+  /* active 态 DSH 会盖一条 linear-gradient，清掉避免深色带 */
   'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-phase="active"] [class*="Dc7zOa_composerSeat"],',
-  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
+  'html[data-dsh-acrylic-light] [data-phase="active"] [class*="Dc7zOa_composerSeat"]{',
   '  background:transparent!important;',
-  '  background-image:none!important;',
   '}',
-  /* ── ② 卡片本体：液态玻璃的外观（不含模糊）─────────────────
-     底色浓度由 --acrylic-panel-solid 控制（paint() 按 alpha 换算，
-     0% = 完全透明，100% = 完全不透明）。 */
   'html[data-dsh-acrylic-light] [data-composer-card],',
   'html[data-dsh-acrylic-light] [class*="RlGAzG_card"]{',
-  '  position:relative;',
-  /* 主底色：浓度滑杆控制 */
-  '  background:var(--acrylic-panel-solid, rgb(16 18 22 / 46%))!important;',
-  /* 镜面釉：上重下轻的白渐变 = 湿玻璃感。浓度高时它会显得多余，
-     所以强度也跟着 alpha 走（--acrylic-sheen 由 paint() 换算）。 */
-  '  background-image:linear-gradient(180deg,rgba(255,255,255,var(--acrylic-sheen,0.16)) 0%,rgba(255,255,255,calc(var(--acrylic-sheen,0.16) * 0.3)) 38%,rgba(255,255,255,calc(var(--acrylic-sheen,0.16) * 0.12)) 100%)!important;',
-  /* ⚠ 本体必须是 none：它是 fixed 后代的祖先 */
-  '  backdrop-filter:none!important;',
-  '  -webkit-backdrop-filter:none!important;',
-  /* 液态玻璃的四层边缘线索 */
-  /* ① 外侧亮边 + ② 内侧亮线 + ③ 上缘高光/下缘阴影 + 外投影 */
-  '  border:1px solid rgba(255,255,255,var(--acrylic-edge,0.22))!important;',
-  '  box-shadow:',
-  '    inset 0 1px 0 rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 1.6)),',
-  '    inset 0 -1px 0 rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 0.5)),',
-  '    inset 0 0 0 1px rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 0.45)),',
-  '    inset 0 12px 20px -14px rgba(255,255,255,calc(var(--acrylic-edge,0.22) * 1.1)),',
-  '    0 12px 40px rgba(0,0,0,0.14)!important;',
+  '  background:var(--acrylic-panel-solid, rgb(16 18 22 / 92%))!important;',
+  '  border:.5px solid rgb(255 255 255 / 12%)!important;',
+  '  box-shadow:0 8px 24px rgb(0 0 0 / 40%),inset 0 1px 0 rgb(255 255 255 / 6%)!important;',
   '}',
-  /* ── ③ 模糊载体：卡片 ::before（伪元素不成为包含块）─────────
-     注意：因为页面背景透明，这条模糊大概率不生效 ——
-     保留它是为了在"用户把 alpha 调低、背后确实有内容"时能有一点帮助，
-     以及未来若页面加了不透明衬底，它立刻就能工作。 */
-  'html[data-dsh-acrylic-light] [data-composer-card]::before,',
-  'html[data-dsh-acrylic-light] [class*="RlGAzG_card"]::before{',
-  '  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:-1;',
-  '  -webkit-backdrop-filter:var(--acrylic-frost, blur(16px)) saturate(var(--acrylic-saturate, 1.8)) brightness(1.04) contrast(1.01);',
-  '  backdrop-filter:var(--acrylic-frost, blur(16px)) saturate(var(--acrylic-saturate, 1.8)) brightness(1.04) contrast(1.01);',
-  '}',
-  /* ── ④ 浅色主题：白玻璃，边缘改用深色描边才看得出边界 ─────── */
   'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [data-composer-card],',
   'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="RlGAzG_card"]{',
-  '  background:var(--acrylic-panel-solid-light, rgb(255 255 255 / 46%))!important;',
-  '  border:1px solid rgba(15,17,21,0.12)!important;',
-  '  box-shadow:',
-  '    inset 0 1px 0 rgba(255,255,255,0.85),',
-  '    inset 0 -1px 0 rgba(15,17,21,0.06),',
-  '    inset 0 0 0 1px rgba(255,255,255,0.45),',
-  '    0 12px 40px rgba(15,17,21,0.10)!important;',
-  '}',
-  /* ── ⑤ 输入栏内部 dock：继承同一块玻璃，只清自己的底色 ────── */
-  'html[data-dsh-acrylic-light] [data-composer-dock],',
-  'html[data-dsh-acrylic-light] [class*="RlGAzG_dock"]{',
-  '  background:transparent!important;',
-  '  background-image:none!important;',
-  '}',
-  /* ── ⑥ 无障碍：系统要求降低透明度时退回实色 ───────────────── */
-  '@media (prefers-reduced-transparency: reduce){',
-  '  html[data-dsh-acrylic-light] [data-composer-card],',
-  '  html[data-dsh-acrylic-light] [class*="RlGAzG_card"]{',
-  '    background:rgb(16 18 22 / 96%)!important;',
-  '    background-image:none!important;',
-  '  }',
-  '  html[data-dsh-acrylic-light] [data-composer-card]::before,',
-  '  html[data-dsh-acrylic-light] [class*="RlGAzG_card"]::before{',
-  '    backdrop-filter:none!important;',
-  '    -webkit-backdrop-filter:none!important;',
-  '  }',
+  '  background:rgb(250 250 252 / 82%)!important;',
+  '  border:.5px solid rgb(15 17 21 / 10%)!important;',
   '}',
   /* ── 内容区底部渐隐：去掉 ───────────────────────────────────
      这条是"模糊失败"时期的替代方案（用 mask 让文字淡出）。
@@ -401,8 +359,8 @@ const GLASS_STYLE = [
   /* ── DSH 自带的底部深色渐隐带已由上面的 composerSeat 规则接管 ──
      原来那条 linear-gradient(180deg, transparent, bg-base 36px)
      会在透明主题里糊成一条黑带。
-     现在 composerSeat 已清成全透明，黑带不存在了；
-     滚到输入栏背后的历史消息由卡片的 backdrop-filter 负责模糊。
+     现在 composerSeat 统一给「淡深底 + blur」，既盖掉黑带，
+     又让滚到输入框附近的历史消息被模糊掉。
      ⚠ 不要再单独写 background:none —— 会因后定义把 blur 那条压掉。 */
 
   /* ── 侧栏会话列表底部的渐隐条 ───────────────────────────────
@@ -492,6 +450,9 @@ window.__ModuleLoader__.load({
   id: 'dsh-acrylic-light',
   factory(require) {
     const React = require('react')
+    // 公告要挂到 body 上（浮在所有面板之上），需要自己建根。
+    // 官方 conversation 插件也 require('react-dom')，所以这个模块可用。
+    const ReactDOM = require('react-dom')
 
     return {
       inject: ['slots', 'locale'],
@@ -534,31 +495,16 @@ window.__ModuleLoader__.load({
           }
           root.setAttribute('data-dsh-acrylic-light', 'true')
           const set = (name, value) => root.style.setProperty(name, value)
-          // ── 不透明度滑杆：0 = 完全透明，100 = 完全不透明 ──────────
-          // 这是用户要的"从全透到全不透"的连续控制。
-          // 深色主题铺深底、浅色主题铺白底，两边都按同一档 alpha 换算，
-          // 所以滑到 100 时两种主题都是实心板，滑到 0 时都只剩描边。
-          const alpha = Math.max(0, Math.min(100, Number(current.alpha)))
-          set('--acrylic-alpha', `${alpha}%`)
-          set('--acrylic-panel-solid', `rgb(16 18 22 / ${alpha}%)`)
-          set('--acrylic-panel-solid-light', `rgb(255 255 255 / ${alpha}%)`)
-          set('--acrylic-panel-float', `rgb(20 22 28 / ${Math.round(alpha * 0.2)}%)`)
-
-          // ── 液态玻璃的边缘强度跟着不透明度走 ──────────────────────
-          // 越透明越需要靠描边和高光交代"这里有一块玻璃"；
-          // 越不透明，描边反而要收敛，否则实心板上会浮出一圈假边。
-          const solidity = alpha / 100
-          const edge = 0.30 * (1 - solidity) + 0.06 * solidity
-          set('--acrylic-edge', edge.toFixed(3))
-          // 镜面釉：全透明时最明显（只有釉没有底），全不透明时基本收掉。
-          const sheen = 0.20 * (1 - solidity) + 0.02 * solidity
-          set('--acrylic-sheen', sheen.toFixed(3))
-
+          const alpha = Number(current.alpha)
+          // alpha 现在控制「浮层与输入栏的雾面厚度」：
+          // 主面板与顶栏保持纯亚克力不受影响（那是系统材质的事）。
+          // 92 = 输入栏那档（默认）；调低会让浮层更透。
+          const thick = Math.max(0, Math.min(100, alpha))
+          set('--acrylic-alpha', `${thick}%`)
           set('--acrylic-noise', `${Number(current.noise)}`)
-          // 磨砂：0 表示关掉模糊（变量写成 none）。
-          const frost = Math.max(0, Math.min(60, Number(current.frost) || 0))
-          set('--acrylic-frost', frost === 0 ? 'none' : `blur(${frost}px)`)
-          set('--acrylic-saturate', `${Math.max(1, Math.min(3, Number(current.saturate) || 1.8))}`)
+          // 浮层/输入栏底色跟随 alpha：同一基色、不同厚度
+          set('--acrylic-panel-solid', `rgb(16 18 22 / ${thick}%)`)
+          set('--acrylic-panel-float', `rgb(20 22 28 / ${Math.round(thick * 0.2)}%)`)
         }
 
         const readLocal = () => {
@@ -587,11 +533,88 @@ window.__ModuleLoader__.load({
         // 首帧就上色，避免"先闪一下原生底色"
         paint(readLocal())
 
+        /* ── 首次使用公告（只出现一次）───────────────────────────────
+           为什么要这个公告：
+             插件被拆成两半 —— 页面样式（随插件安装）和窗口材质补丁（需改 app.asar）。
+             后者无法随插件分发：Electron 的窗口材质只能在创建窗口时设置，
+             而插件跑在独立 Node 进程里，拿不到 BrowserWindow
+             （实测 require('electron') 报 Cannot find module）。
+             所以第一次安装时必须让用户知道还要去 GitHub 取补丁，
+             否则他们会看到「装好了但窗口是黑的」，以为插件坏了。
+
+           只出现一次：读完写 localStorage 标记，之后不再打扰。
+           localStorage 不可用时（隐私模式等）仍会显示 —— 宁可多提醒一次，
+           也不要让用户错过这个关键信息。 */
+        const noticeSeen = () => {
+          try {
+            return window.localStorage?.getItem(NOTICE_KEY) === 'seen'
+          } catch {
+            return false
+          }
+        }
+
+        const markNoticeSeen = () => {
+          try {
+            window.localStorage?.setItem(NOTICE_KEY, 'seen')
+          } catch {
+            // 存不上就每次显示，不影响功能
+          }
+        }
+
+        const Notice = () => {
+          const [open, setOpen] = React.useState(() => !noticeSeen())
+
+          if (!open) return null
+
+          return React.createElement('aside', { className: 'acrylic-notice', role: 'status' },
+            React.createElement('h3', null, t('noticeTitle')),
+            React.createElement('p', null, t('noticeBody')),
+            React.createElement('code', null, t('noticeLink')),
+            React.createElement('footer', null, t('noticeFoot')),
+            React.createElement('button', {
+              type: 'button',
+              onClick: () => {
+                markNoticeSeen()
+                setOpen(false)
+              },
+            }, t('noticeOk')))
+        }
+
+        /* 挂到 body 上：公告要浮在所有面板之上，放进设置页的 slot 会被裁掉。 */
+        let noticeHost = null
+        ctx.effect(() => {
+          noticeHost = document.createElement('div')
+          noticeHost.setAttribute('data-dsh-acrylic-light-notice', 'true')
+          document.body.append(noticeHost)
+
+          const reactRoot = ReactDOM.createRoot
+            ? ReactDOM.createRoot(noticeHost)
+            : null
+
+          if (reactRoot !== null) {
+            reactRoot.render(React.createElement(Notice))
+          } else {
+            // 没有 createRoot（React 17 及以前）时用旧 API
+            ReactDOM.render(React.createElement(Notice), noticeHost)
+          }
+
+          return () => {
+            try {
+              if (reactRoot !== null) reactRoot.unmount()
+              else ReactDOM.unmountComponentAtNode(noticeHost)
+            } catch {
+              // 卸载失败不影响
+            }
+            noticeHost?.remove()
+            noticeHost = null
+          }
+        }, 'dsh-acrylic-light: first-run notice')
+
         ctx.effect(() => () => {
           disposeGlass()
           disposeControls()
           root.removeAttribute('data-dsh-acrylic-light')
-          for (const name of ['--acrylic-alpha', '--acrylic-noise', '--acrylic-frost']) {
+          for (const name of ['--acrylic-alpha', '--acrylic-noise']) {
             root.style.removeProperty(name)
           }
         }, 'dsh-acrylic-light: paint')
@@ -647,7 +670,6 @@ window.__ModuleLoader__.load({
               React.createElement('div', { className: 'acrylic-hint' }, t('enableHint'))),
 
             slider('alpha', 'alpha', 'alphaHint', 0, 100, 1, '%'),
-            slider('frost', 'frost', 'frostHint', 0, 60, 1, 'px'),
             slider('noise', 'noise', 'noiseHint', 0, 12, 0.2, '%'),
 
             React.createElement('div', { className: 'acrylic-actions' },
