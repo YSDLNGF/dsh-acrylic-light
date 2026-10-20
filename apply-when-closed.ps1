@@ -5,15 +5,25 @@ param(
   [switch]$NoRestart
 )
 
-<#
-  等 DeepSeek Harness 完全退出 -> 还原干净 asar -> 打材质补丁 -> 重启。
+# Waits for DeepSeek Harness to fully exit, applies the window-material patch
+# to app.asar, then relaunches.
+#
+# Why this step exists:
+#   Window material (backgroundMaterial) is an Electron BrowserWindow
+#   CONSTRUCTOR option that only exists in the main process. Plugins run in a
+#   separate Node process -- require('electron') fails there, so a plugin can
+#   never reach the window object. Same situation as dsh-desktop-glass and
+#   other themes: the window material has to be patched into app.asar.
+#
+# Usage:
+#   Double-click enable-transparency.cmd in the same folder.
+#
+# Notes:
+#   * No backup is restored. The patch is an equal-byte edit applied to the
+#     current app.asar, so it is safe after a Harness update: if the anchors do
+#     not match, the patch script exits without touching the file.
+#   * Harness is relaunched automatically when the patch succeeds.
 
-  为什么需要独立进程：补丁要求 app.asar 不被占用，而补丁生效又要求重启 DSH。
-  用计划任务托管本脚本，可保证它不随 DSH 退出而被杀掉。
-
-  用法（在仓库根目录执行）：
-    powershell -ExecutionPolicy Bypass -File .\apply-when-closed.ps1
-#>
 $ErrorActionPreference = 'Continue'
 
 $here = $PSScriptRoot
@@ -25,28 +35,33 @@ function Find-First($paths) {
   return $null
 }
 
-# ── 路径探测 ────────────────────────────────────────────────
+# -- locate app.asar --
 $asar = $Asar
 if (-not $asar) {
   $asar = Find-First @(
     'C:\Program Files\DeepSeek Harness\resources\app.asar'
     'C:\Program Files (x86)\DeepSeek Harness\resources\app.asar'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\resources\app.asar')
+    (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness\resources\app.asar')
     'E:\gongju\deepseek\resources\app.asar'
   )
 }
+
+# -- locate the executable --
 $exe = $Exe
 if (-not $exe) {
   $exe = Find-First @(
     'C:\Program Files\DeepSeek Harness\DeepSeek Harness.exe'
     'C:\Program Files (x86)\DeepSeek Harness\DeepSeek Harness.exe'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\DeepSeek Harness.exe')
+    (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness\DeepSeek Harness.exe')
     'E:\gongju\deepseek\DeepSeek Harness.exe'
   )
 }
-if ($asar -eq $null) { Write-Host '找不到 app.asar，请用 -Asar 指定'; exit 2 }
 
-# Node：优先 PATH，其次 DSH 自带运行时
+if ($asar -eq $null) { Write-Host 'app.asar not found. Pass -Asar <path>.'; exit 2 }
+
+# -- locate node: PATH first, then the runtime bundled with DSH --
 $nodeCmd = (Get-Command node -ErrorAction SilentlyContinue).Source
 if ($nodeCmd -eq $null) {
   $candidates = @(
@@ -59,7 +74,7 @@ if ($nodeCmd -eq $null) {
   }
   $nodeCmd = Find-First $candidates
 }
-if ($nodeCmd -eq $null) { Write-Host '找不到 node.exe'; exit 2 }
+if ($nodeCmd -eq $null) { Write-Host 'node.exe not found.'; exit 2 }
 
 function Write-Log([string]$message) {
   $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message
@@ -67,10 +82,11 @@ function Write-Log([string]$message) {
   Write-Host $line
 }
 
-Write-Log "=== dsh-acrylic-light helper started (pid $PID) ==="
+Write-Log "=== acrylic helper started (pid $PID) ==="
 Write-Log "asar = $asar"
+Write-Log "exe  = $exe"
 
-# ── 等 app.asar 释放 ────────────────────────────────────────
+# -- wait until app.asar is released --
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $free = $false
 while ((Get-Date) -lt $deadline) {
@@ -79,41 +95,41 @@ while ((Get-Date) -lt $deadline) {
     $stream.Close()
     $free = $true
     break
-  } catch { Start-Sleep -Milliseconds 700 }
+  } catch {
+    Start-Sleep -Milliseconds 700
+  }
 }
 if (-not $free) { Write-Log 'timeout: asar still locked'; exit 1 }
 Write-Log 'asar released'
 
-# ── 1. 还原到最近一次干净备份，保证补丁总是打在干净文件上 ────
-$backups = Get-ChildItem (Join-Path $here 'backups') -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-if ($backups.Count -gt 0) {
-  $restoreFrom = Join-Path $backups[0].FullName 'app.asar'
-  if (Test-Path $restoreFrom) {
-    Write-Log "restoring clean asar from $restoreFrom"
-    Copy-Item $restoreFrom $asar -Force
-  }
-}
-
-# ── 2. 打补丁：只加 backgroundMaterial，不加透明 backgroundColor ──
+# -- patch: add backgroundMaterial only, never a transparent backgroundColor --
 Write-Log 'patching'
 $patched = $false
 try {
   $output = & $nodeCmd (Join-Path $here 'patch-asar.mjs') --asar $asar --material acrylic 2>&1
   Write-Log ($output -join "`n")
-  if ($LASTEXITCODE -eq 0) { $patched = $true; Write-Log 'PATCH OK' }
-  else { Write-Log "PATCH FAILED exit=$LASTEXITCODE" }
-} catch { Write-Log "patch threw: $($_.Exception.Message)" }
+  if ($LASTEXITCODE -eq 0) {
+    $patched = $true
+    Write-Log 'PATCH OK'
+  } else {
+    Write-Log "PATCH FAILED exit=$LASTEXITCODE"
+  }
+} catch {
+  Write-Log "patch threw: $($_.Exception.Message)"
+}
 
-# ── 3. 校验补丁确实落进归档 ─────────────────────────────────
+# -- verify the patch really landed in the archive --
 if ($patched) {
   $check = & $nodeCmd (Join-Path $here 'verify-asar.mjs') --asar $asar 2>&1
   Write-Log ($check -join "`n")
 }
 
-# ── 4. 重启，避免把用户留在打不开的应用前 ───────────────────
+# -- relaunch so the user is not left without the app --
 if (-not $NoRestart -and $exe -ne $null) {
   Write-Log "relaunching (patched=$patched)"
   Start-Process -FilePath $exe
 } else {
   Write-Log 'not relaunching (-NoRestart specified or exe not found)'
 }
+
+Write-Log '=== done ==='

@@ -92,29 +92,35 @@ localStorage.removeItem('dsh-acrylic-light:first-run-notice')
 > （`github:owner/repo`、`git+https://…`、或宿主仓库 URL）。
 > 本仓库根 `package.json` 已声明 `dsh.bundle`，满足「可安装」的判定条件。
 
-### 第 2 步：让窗口透出壁纸（这一步需要命令行）
+### 第 2 步：让窗口透出壁纸（双击一次即可）
 
-第 1 步只让页面半透明，但窗口本身还是不透明的 —— 壁纸透不出来。
-窗口材质是 Electron `BrowserWindow` 的**构造参数**，只存在于主进程，
-插件（运行在渲染进程侧）碰不到窗口对象，所以必须改 `app.asar`。
+第 1 步只装了页面样式，窗口本身仍是不透明的 —— 壁纸透不出来。
 
-这与现有同类插件（如 [dsh-desktop-glass](https://github.com/JianHeShui/dsh-desktop-glass)）
-的处境相同，**没有纯插件方案**。
+原因是硬性的：窗口材质 `backgroundMaterial` 是 Electron `BrowserWindow` 的
+**构造参数**，只存在于主进程。插件跑在独立的 Node 进程里，
+`require('electron')` 直接报 `Cannot find module 'electron'`，拿不到窗口对象
+（实测，见「已知限制」）。所以**没有纯插件方案**，必须改 `app.asar`。
+同类插件（如 [dsh-desktop-glass](https://github.com/JianHeShui/dsh-desktop-glass)）都一样。
 
-```powershell
-cd dsh-acrylic-light
-powershell -ExecutionPolicy Bypass -File .\apply-when-closed.ps1
-```
+**做法：下载本仓库，双击 `enable-transparency.cmd`。**
 
-这个脚本会：
+它会：
 
-1. 等你从托盘退出 Harness（它监测 `app.asar` 锁释放）
-2. 自动给 `app.asar` 打**等字节补丁**（主窗口加 `backgroundMaterial: acrylic`）
-3. 自动重启 Harness
+1. 等你自己从托盘退出 Harness（它会一直等，直到进程消失）
+2. 自动给 `app.asar` 打**等字节补丁**（主窗口加 `backgroundMaterial: acrylic`，
+   标题栏 overlay 改透明）
+3. 校验补丁确实写进归档
+4. 自动重启 Harness
 
 **你只需要退出一次，剩下它自己完成。**
 
-做完这步，窗口才能真正透出壁纸。
+> 不想双击也行，命令行等价：
+> ```
+> powershell -ExecutionPolicy Bypass -File .\apply-when-closed.ps1
+> ```
+>
+> 补丁只在改动 `main.js` 的几处属性，**文件总大小不变**（等字节修补），
+> 所以不会破坏 asar 的其他条目。锚点对不上时脚本直接失败退出，不动已安装文件。
 
 ### 第 3 步：让它出现在插件市场（可选）
 
