@@ -124,6 +124,14 @@ Write-Log "=== acrylic helper started (pid $PID) ==="
 Write-Log "asar = $asar"
 Write-Log "exe  = $exe"
 
+# Tell the user up front what is being waited for, so an idle window does not
+# look like a hang. The old version printed nothing until the first 15s tick.
+Write-Host ''
+Write-Host 'Waiting for DeepSeek Harness to exit...'
+Write-Host '  If it is still open: right-click the tray icon -> Exit.'
+Write-Host '  This window updates automatically; there is nothing to press.'
+Write-Host ''
+
 # -- wait until app.asar is released --
 #
 # Why not rely on "can we open the file exclusively" alone:
@@ -160,40 +168,61 @@ $free = $false
 $lastReport = Get-Date
 
 while ((Get-Date) -lt $deadline) {
-  $running = Test-HarnessRunning
+  # The ONLY thing that actually blocks patching is the target file being
+  # locked. The process check is merely used to word the status line.
+  #
+  # The old version required BOTH "no Harness process" AND "file writable",
+  # which is wrong in two ways:
+  #   * passing -Asar for some other copy (a backup, a second install) waited
+  #     forever on a running Harness that has nothing to do with that file;
+  #   * a Harness started from a different path also matched the name check.
   $writable = Test-AsarWritable
+  if ($writable) { $free = $true; break }
 
-  if (-not $running -and $writable) {
-    $free = $true
-    break
+  $running = Test-HarnessRunning
+
+  # A live one-line status keeps the window from looking frozen.
+  # The old version only logged every 15s, so for the first quarter minute
+  # nothing changed on screen and users assumed it had hung.
+  $elapsed = [int](((Get-Date) - ($deadline.AddMinutes(-$TimeoutMinutes))).TotalSeconds)
+  if ($running) {
+    Write-Host ("  [{0,3}s] Harness is still running - quit it from the tray icon" -f $elapsed) -NoNewline
+  } else {
+    Write-Host ("  [{0,3}s] Harness exited; waiting for app.asar to be released" -f $elapsed) -NoNewline
   }
+  Write-Host "`r" -NoNewline
 
-  # report status every 15s so the user is not left staring at a blank window
+  # Keep the plain-text log sparse (one line per 15s) for later inspection.
   if (((Get-Date) - $lastReport).TotalSeconds -ge 15) {
     $lastReport = Get-Date
     if ($running) {
-      Write-Log 'waiting: DeepSeek Harness is still running'
+      Write-Log 'waiting: app.asar is locked (DeepSeek Harness is still running)'
     } else {
-      Write-Log 'waiting: Harness exited, but app.asar is still locked (handle not released yet)'
+      Write-Log 'waiting: app.asar is locked (a leftover process may be holding it)'
     }
   }
 
   Start-Sleep -Milliseconds 800
 }
 
+# Clear the status line before proceeding.
+Write-Host ''
+if ($free) { Write-Log 'asar released and writable' }
+
 if (-not $free) {
   $running = Test-HarnessRunning
+  Write-Log 'FAILED: app.asar is still locked after the timeout.'
   if ($running) {
-    Write-Log 'FAILED: DeepSeek Harness is STILL RUNNING.'
-    Write-Log 'Quit it completely from the tray icon (right-click -> Exit), then run this again.'
+    Write-Log 'DeepSeek Harness is still running. Quit it completely from the tray icon'
+    Write-Log '(right-click -> Exit), then run this script again.'
   } else {
-    Write-Log 'FAILED: app.asar is still locked even though Harness is gone.'
-    Write-Log 'A leftover process is probably holding it. End all "DeepSeek Harness" processes'
-    Write-Log 'in Task Manager, then run this again.'
+    Write-Log 'No Harness process was found, so something else is holding the file.'
+    Write-Log 'End every "DeepSeek Harness" process in Task Manager, then try again.'
   }
+  Write-Log ''
+  Write-Log "File in question: $asar"
   exit 1
 }
-Write-Log 'asar released and writable'
 
 # -- patch: add backgroundMaterial only, never a transparent backgroundColor --
 Write-Log 'patching'
