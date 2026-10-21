@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export const name = 'acrylic'
 
@@ -36,7 +37,21 @@ const ROUTE = '/dsh-acrylic-light/wallpaper'
  *   而 localStorage 是**按 origin 隔离**的 —— 重启后 origin 一变，
  *   之前写入的标记就读不到了。所以「点过知道了、重启不再弹」这件事
  *   必须存在不随端口变化的宿主文件里，localStorage 只能当缓存。
- *   dsh-plugin-wallpaper-engine 用同一套思路（config.json 是唯一真相源）。
+ *
+ * ⚠ 为什么状态文件放在**插件自己的目录**里，而不是用户主目录：
+ *   用户的口径是「重装或首次安装就弹，不卸载重装则不弹」。
+ *   如果把状态写到 `~/.dsh-acrylic-light/config.json` 这种**用户级目录**，
+ *   卸载插件时那个目录不会被删（它不是插件的一部分），于是重装后
+ *   读到「已读」，公告还是不出来 —— 这正是第一版踩的坑。
+ *
+ *   放进插件包目录后：
+ *     · 卸载 → 目录被整个删掉 → 状态自然清空；
+ *     · 重装 → 状态文件不存在 → 公告重新出现；
+ *     · 不卸载只重启 → 文件还在 → 不再弹。
+ *   三种行为与用户描述完全一致。
+ *
+ *   代价：插件升级（重新 pnpm add）同样会重置，用户会再看到一次公告。
+ *   对本插件可接受 —— 公告本身就是安装指引，升级后重申一次也无害。
  *
  * 为什么整段包在 try/catch 里：
  *   设置读写只是公告的附属能力。任何一步失败（目录不可写、JSON 损坏、
@@ -46,14 +61,26 @@ const ROUTE = '/dsh-acrylic-light/wallpaper'
  */
 const NOTICE_ROUTE = '/dsh-acrylic-light/notice'
 
-/** 数据目录：`~/.dsh-acrylic-light`（与 wallpaper-engine 的约定一致）。 */
-function dataDir() {
-  const override = process.env.DSH_ACRYLIC_DATA_DIR
-  return override && override.trim() ? resolve(override.trim()) : join(homedir(), '.dsh-acrylic-light')
-}
-
+/**
+ * 状态文件路径：插件包目录下的 `.notice-state.json`。
+ *
+ * `import.meta.url` 指向本文件（.../dsh-acrylic-light/plugin/index.js），
+ * 上跳两级就是包根目录。用 ESM 的 import.meta 而不是 process.cwd()：
+ * 宿主的 cwd 是 DSH 的安装目录，不是插件目录。
+ *
+ * 文件名以点开头，且不在 package.json 的 `files` 白名单里，
+ * 所以既不会被 git 跟踪，也不会随 npm 包分发。
+ */
 function configPath() {
-  return join(dataDir(), 'config.json')
+  const override = process.env.DSH_ACRYLIC_DATA_DIR
+  if (override && override.trim()) return join(resolve(override.trim()), 'config.json')
+  try {
+    const here = dirname(fileURLToPath(import.meta.url))
+    return join(dirname(here), '.notice-state.json')
+  } catch {
+    // 极端情况下拿不到模块路径：退回用户目录，功能不中断
+    return join(homedir(), '.dsh-acrylic-light', 'config.json')
+  }
 }
 
 /** 读配置；任何异常都回空对象，调用方不必 try/catch。 */

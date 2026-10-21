@@ -5,6 +5,12 @@ releases/dsh-acrylic-light-patch/
 *.pid
 .winrect.json
 
+# 公告已读状态：插件运行期自己写在包根，
+# 卸载插件时随目录一起删掉（这正是「重装就重新提示」的实现方式）。
+# 不能进仓库，也不能随包分发。
+.notice-state.json
+notice-state.json
+
 # 本机开发/临时脚本（含本机绝对路径或备份时间戳，不宜进仓库）
 .install.ps1
 install-on-close.mjs
