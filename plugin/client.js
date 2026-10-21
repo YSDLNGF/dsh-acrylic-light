@@ -736,11 +736,28 @@ window.__ModuleLoader__.load({
           }, 250)
         }
 
+        /* ── 为什么 observer 观察 document.body 而不是 scrollBody ────────
+           原来观察 `[data-conversation-scroll]` 那个具体节点。问题是：
+           用户切到「插件」「自动化任务」等页面再切回会话时，React 会把
+           整棵会话子树卸载重建 —— 旧的 scrollBody 节点已经被移除，
+           observer 挂在一个**已脱离文档的节点**上，从此永远收不到通知，
+           于是新 seat 没人回抬，裁切消失（重启后正常，因为那是首次挂载）。
+
+           改成观察 document.body（subtree: true）：
+             1. body 本身不会随页面切换被替换，observer 一直有效；
+             2. 任何子树的增删都会触发，切回会话时新 seat 一出现就能捕获；
+             3. 仍然走 250ms 防抖 + liftSeat 的"已在正确位置就返回"短路，
+                不会频繁操作 DOM。
+
+           代价是回调触发次数变多，但回调只做一件事：设一个 250ms 防抖定时器，
+           定时器到点才真正查 DOM。开销可忽略。 */
         const startObserver = () => {
           if (observer) return
           observer = new MutationObserver(() => scheduleLift())
-          const scroll = findScroll()
-          if (scroll) observer.observe(scroll, { childList: true, subtree: false })
+          // body 一定存在（插件在渲染层加载时已挂载），退化情况用 documentElement
+          const target = document.body ?? document.documentElement
+          if (!target) return
+          observer.observe(target, { childList: true, subtree: true })
         }
 
         const stopObserver = () => {
@@ -757,9 +774,18 @@ window.__ModuleLoader__.load({
         }
 
         const ensureLifted = () => {
-          // 冷启动保护：初次移动与监听都推迟，等 React 首屏渲染稳定后再动，
-          // 避免在初次 reconciliation 中途移动 seat → 主面板空白。
-          // 该延迟仅适用于"首次"，之后复用 scheduleLift 的短防抖。
+          /* 冷启动保护：首次移动与监听都推迟，等 React 首屏渲染稳定后再动，
+             避免在初次 reconciliation 中途移动 seat → 主面板空白。
+
+             ⚠ 这个保护只该用于「进程内的第一次挂载」。
+             原实现用 `ensureLifted.inited` 做一次性闸门，副作用是：
+             用户切到插件页 / 自动化任务页再切回会话时，DOM 已被 React
+             重建，需要重新 lift + 重新挂 observer，但 inited 已是 true，
+             只走到下面的 scheduleLift —— 而 observer 当时还没启动，
+             这一次 lift 就成了唯一一次尝试，之后无人回抬，裁切消失。
+
+             现在：首次仍延迟 900ms（保护首屏），但**每次都确保 observer 在跑**，
+             这样切回会话后新 DOM 一出现就由 observer 驱动回抬。 */
           if (!ensureLifted.inited) {
             ensureLifted.inited = true
             let bootTimer = null
@@ -774,7 +800,10 @@ window.__ModuleLoader__.load({
             }
             return
           }
-          startObserver(); scheduleLift()
+          // 之后每次调用：确保监听在跑，并排一次防抖 lift。
+          // startObserver 内部有 `if (observer) return`，重复调用是安全的。
+          startObserver()
+          scheduleLift()
         }
 
         const paint = (state) => {
