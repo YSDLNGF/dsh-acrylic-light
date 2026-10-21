@@ -1049,23 +1049,28 @@ window.__ModuleLoader__.load({
       } catch (_) {}
     }
 
+    /* 文案口径（重要）：这段公告是在**重启之后**才被加载并显示的
+       —— 插件的前端代码只有在页面启动时才执行，安装当下的那一刻
+       DSH 只会显示它自己的「请重启使更改生效」。
+       所以这里绝不能写「请重启」，那是一句用户看到时已经做完的指令，
+       读起来会让人以为没生效。改成陈述现状 + 只讲剩下的那一步。 */
     var ZH = {
-      title: '注意事项',
-      lead: '这个插件的安装分为两步：',
+      title: '还差一步',
+      lead: '插件已生效，界面样式现在是这套透明亚克力。',
       steps: [
-        '<b>第一步</b>：安装插件后重启 Harness —— 样式在重启后才生效（就是现在这一步）。',
-        '<b>第二步</b>：到 GitHub 下载透明补丁并运行，窗口才能真正透出桌面壁纸。'
+        '<b>剩下的一步</b>：到 GitHub 下载透明补丁并运行，窗口才能真正透出桌面壁纸。',
+        '<b>补丁会自动处理</b>：等你退出 DSH → 打补丁 → 校验 → 重新启动。'
       ],
       repoLabel: '仓库地址（补丁从这里下载）',
-      foot: '只装插件也能用，只是窗口不会透明、主面板仍是不透明的深色。此提示只出现一次。',
+      foot: '不装补丁也能用，只是窗口不会透明、主面板仍是不透明的深色。此提示只出现一次。',
       ok: '知道了'
     }
     var EN = {
-      title: 'Before you start',
-      lead: 'Installing this plugin takes two steps:',
+      title: 'One step left',
+      lead: 'The plugin is active — the translucent acrylic styling is already applied.',
       steps: [
-        '<b>Step 1</b>: install the plugin, then restart Harness — the styling only applies after a restart (this is that step).',
-        '<b>Step 2</b>: download the transparency patch from GitHub and run it, so the window can actually show the desktop wallpaper.'
+        '<b>What is left</b>: download the transparency patch from GitHub and run it, so the window can actually show the desktop wallpaper.',
+        '<b>The patch handles it</b>: it waits for you to quit DSH, patches, verifies, then relaunches for you.'
       ],
       repoLabel: 'Repository (download the patch here)',
       foot: 'The plugin works without the patch, but the window will not be transparent and the main panel stays dark. This note appears only once.',
