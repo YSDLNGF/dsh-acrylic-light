@@ -110,8 +110,13 @@ console.log(`main.js  : ${mainSize} 字节 @ ${mainStart}`)
 console.log(`目标材质 : ${args.material}`)
 
 // ---------- 幂等检查 ----------
-if (/process\.platform === "win32" && primary \? \{[\s\S]{0,400}?backgroundMaterial:/u.test(mainText)) {
-  fail('主窗口分支已含 backgroundMaterial，补丁似乎已打过（先 --restore 还原再试）')
+// 判断"已经打过补丁"必须可靠，否则会重复插入 backgroundMaterial，
+// 把 main.js 改坏。之前用 400 字节窗口匹配，但补丁版里
+// backgroundMaterial 和 primary ? { 之间隔着 titleBarOverlay 等属性，
+// 窗口一超就漏判 —— 现在改成：[从 primary ? { 到下一个顶层 } 之间] 是否已有。
+const idempotentPattern = /process\.platform === "win32" && primary \? \{[\s\S]{0,2000}?backgroundMaterial:/u
+if (idempotentPattern.test(mainText)) {
+  fail('主窗口分支已含 backgroundMaterial，补丁已经打过（如需重打，先 --restore 还原）')
 }
 
 // ---------- 1. 定位主窗口 win32 分支（必须唯一）----------

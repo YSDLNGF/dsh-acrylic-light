@@ -4,9 +4,15 @@ param(
 )
 
 <#
-  还原 app.asar 的窗口材质补丁。
-  不指定 -Backup 时，用 backups/ 下最新的那一份。
-  运行前请确认 DeepSeek Harness 已完全退出（否则文件被占用，写入会失败）。
+  Restore app.asar to its unpatched original.
+
+  Without -Backup, the newest copy under backups\ is used.
+  Make sure DeepSeek Harness is fully closed first, or the file will be locked
+  and the copy will fail.
+
+  NOTE: this file is deliberately ASCII-only. PowerShell 5.1 reads a .ps1
+  without a BOM using the ANSI code page, so non-ASCII comments get mangled and
+  can break parsing. Keep it English-only.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -54,12 +60,12 @@ if (-not $asar) {
   if ($installDir) { $asar = Join-Path $installDir 'resources\app.asar' }
 }
 if ($asar -eq $null) {
-  Write-Host '找不到 app.asar，请用 -Asar 指定'
-  Write-Host '例如: restore-asar.ps1 -Asar C:\path\to\resources\app.asar'
+  Write-Host 'app.asar not found. Pass it with -Asar <path>.'
+  Write-Host 'Example: restore-asar.ps1 -Asar C:\path\to\resources\app.asar'
   exit 2
 }
 
-# ── 找到备份 ────────────────────────────────────────────────
+# -- locate the backup --
 if (-not $Backup) {
   $dir = Join-Path $here 'backups'
   $latest = Get-ChildItem $dir -Directory -ErrorAction SilentlyContinue |
@@ -69,32 +75,32 @@ if (-not $Backup) {
     $candidate = Join-Path $latest.FullName 'app.asar'
     if (Test-Path $candidate) { $Backup = $candidate }
   }
-  # 兜底：patch-asar.mjs 也会把原件存成 .glass-original 旁的副本
+  # fallback: patch-asar.mjs also leaves a .glass-original copy next to the file
   if (-not $Backup) {
     $legacy = Join-Path $here 'app.asar.original'
     if (Test-Path $legacy) { $Backup = $legacy }
   }
 }
 if (-not $Backup -or -not (Test-Path $Backup)) {
-  Write-Host "找不到备份：$Backup"
-  Write-Host '可用 -Backup <path> 手动指定。'
+  Write-Host "No backup found: $Backup"
+  Write-Host 'Pass one manually with -Backup <path>.'
   exit 2
 }
 
-Write-Host "目标 : $asar"
-Write-Host "备份 : $Backup"
+Write-Host "target : $asar"
+Write-Host "backup : $Backup"
 
-# ── 确认文件未被占用 ────────────────────────────────────────
+# -- make sure the file is not locked --
 try {
   $stream = [System.IO.File]::Open($asar, 'Open', 'ReadWrite', 'None')
   $stream.Close()
 } catch {
   Write-Host ''
-  Write-Host 'app.asar 仍被占用 —— DeepSeek Harness 还没退出。'
-  Write-Host '请从托盘完全退出后重试。'
+  Write-Host 'app.asar is still locked - DeepSeek Harness has not exited yet.'
+  Write-Host 'Quit it completely from the tray icon, then try again.'
   exit 3
 }
 
 Copy-Item $Backup $asar -Force
 Write-Host ''
-Write-Host '已还原 app.asar。重启 DeepSeek Harness 后窗口恢复原生外观。'
+Write-Host 'app.asar restored. Restart DeepSeek Harness to get the stock look back.'

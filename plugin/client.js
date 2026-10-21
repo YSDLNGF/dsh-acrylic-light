@@ -944,3 +944,176 @@ window.__ModuleLoader__.load({
   },
 })
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 首次使用公告 —— 完全独立于插件主体
+ *
+ * 这段代码刻意写在 `window.__ModuleLoader__.load({...})` 之外，并且整体包在
+ * try/catch 里，理由：
+ *
+ *   1. 它不参与插件加载。哪怕这里抛错（DOM 不存在、localStorage 被禁、
+ *      样式注入失败），也只会让「公告不显示」，绝不会影响插件挂载、
+ *      输入栏裁切或页面渲染 —— 上一版把公告塞进 apply() 里，
+ *      任何异常都会顺着插件加载链把整个页面带崩。
+ *   2. 它不依赖 React / ctx / locale / require。纯 DOM + 内嵌文案，
+ *      少一条依赖就少一条崩溃路径。
+ *   3. 它自己拉长到 1.2s 后再执行，避开冷启动首屏，不和插件抢帧。
+ *
+ * 为什么只能在重启后出现：client.js 是渲染层代码，DSH 不重启就不会加载
+ * 本文件，所以在「装好插件、还没重启」那段时间里插件代码根本没运行，
+ * 任何提示都无处显示。重启后的首次加载是唯一能覆盖新用户的时点。
+ * ══════════════════════════════════════════════════════════════════════════ */
+;(function () {
+  try {
+    var NOTICE_KEY = 'dsh-acrylic-light:notice-v1'
+    var REPO = 'https://github.com/YSDLNGF/dsh-acrylic-light'
+
+    // 已读就不再弹
+    try {
+      if (window.localStorage && window.localStorage.getItem(NOTICE_KEY) === 'seen') return
+    } catch (_) { /* 存储不可用：仍然显示，宁可多提醒一次 */ }
+
+    var ZH = {
+      title: '注意事项',
+      lead: '这个插件的安装分为两步：',
+      steps: [
+        '<b>第一步</b>：安装插件后重启 Harness —— 样式在重启后才生效（就是现在这一步）。',
+        '<b>第二步</b>：到 GitHub 下载透明补丁并运行，窗口才能真正透出桌面壁纸。'
+      ],
+      repoLabel: '仓库地址（补丁从这里下载）',
+      foot: '只装插件也能用，只是窗口不会透明、主面板仍是不透明的深色。此提示只出现一次。',
+      ok: '知道了'
+    }
+    var EN = {
+      title: 'Before you start',
+      lead: 'Installing this plugin takes two steps:',
+      steps: [
+        '<b>Step 1</b>: install the plugin, then restart Harness — the styling only applies after a restart (this is that step).',
+        '<b>Step 2</b>: download the transparency patch from GitHub and run it, so the window can actually show the desktop wallpaper.'
+      ],
+      repoLabel: 'Repository (download the patch here)',
+      foot: 'The plugin works without the patch, but the window will not be transparent and the main panel stays dark. This note appears only once.',
+      ok: 'Got it'
+    }
+    var TEXT = ZH
+    try {
+      var lang = (navigator.languages && navigator.languages[0]) || navigator.language || ''
+      if (!/^zh/i.test(lang)) TEXT = EN
+    } catch (_) { /* 语言探测失败就用中文 */ }
+
+    var CSS = [
+      '.dsh-acrylic-notice{position:fixed;right:22px;bottom:22px;z-index:2147483000;',
+      'width:min(430px,calc(100vw - 44px));box-sizing:border-box;padding:18px 20px 16px;',
+      'border-radius:16px;border:.5px solid rgb(255 255 255 / 16%);',
+      'background:rgb(22 24 30 / 96%);color:#fff;',
+      'box-shadow:0 22px 60px rgb(0 0 0 / 52%),0 2px 8px rgb(0 0 0 / 30%);',
+      'backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);',
+      'font:400 13px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif;',
+      'animation:dsh-acrylic-notice-in .24s cubic-bezier(.22,1,.36,1)}',
+      '@keyframes dsh-acrylic-notice-in{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}',
+      '.dsh-acrylic-notice h3{margin:0 0 10px;font-size:14px;font-weight:650;line-height:1.4;',
+      'display:flex;align-items:center;gap:8px;color:#fff}',
+      '.dsh-acrylic-notice h3::before{content:"";width:3px;height:14px;border-radius:2px;background:#4c9aff;flex:none}',
+      '.dsh-acrylic-notice .dsh-an-lead{margin:0 0 10px;font-size:12.5px;color:rgb(255 255 255 / 62%)}',
+      '.dsh-acrylic-notice ol{margin:0 0 12px;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}',
+      '.dsh-acrylic-notice li{position:relative;padding:9px 12px 9px 30px;border-radius:10px;',
+      'background:rgb(255 255 255 / 6%);color:rgb(255 255 255 / 88%);font-size:12.5px;line-height:1.6}',
+      '.dsh-acrylic-notice li b{color:#fff;font-weight:600}',
+      '.dsh-acrylic-notice .dsh-an-no{position:absolute;left:10px;top:10px;width:16px;height:16px;',
+      'border-radius:50%;background:rgb(76 154 255 / 22%);color:#7ab6ff;font-size:10px;font-weight:700;',
+      'display:flex;align-items:center;justify-content:center;line-height:1}',
+      '.dsh-acrylic-notice .dsh-an-label{margin:0 0 5px;font-size:11.5px;color:rgb(255 255 255 / 48%)}',
+      '.dsh-acrylic-notice code{display:block;margin:0 0 12px;padding:9px 11px;border-radius:9px;',
+      'background:rgb(255 255 255 / 9%);color:#9ecbff;',
+      'font:400 12px/1.5 Consolas,ui-monospace,monospace;',
+      'word-break:break-all;user-select:all;-webkit-user-select:all}',
+      '.dsh-acrylic-notice .dsh-an-foot{margin:0 0 13px;color:rgb(255 255 255 / 45%);font-size:11.5px;line-height:1.6}',
+      '.dsh-acrylic-notice button{width:100%;padding:9px 14px;border:0;border-radius:10px;',
+      'background:#3b82f6;color:#fff;font:inherit;font-size:13px;font-weight:550;cursor:pointer}',
+      '.dsh-acrylic-notice button:hover{filter:brightness(1.1)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice{background:rgb(255 255 255 / 97%);color:#0f1115;',
+      'border-color:rgba(15,17,21,.1);box-shadow:0 22px 60px rgb(0 0 0 / 22%),0 2px 8px rgb(0 0 0 / 8%)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice h3{color:#0f1115}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-lead{color:rgba(15,17,21,.6)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li{background:rgba(15,17,21,.045);color:rgba(15,17,21,.86)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li b{color:#0f1115}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-no{background:rgba(59,130,246,.16);color:#1d6fd8}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-label{color:rgba(15,17,21,.5)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice code{background:rgba(15,17,21,.055);color:#0b62d6}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-foot{color:rgba(15,17,21,.5)}',
+      '@media (max-width:520px){.dsh-acrylic-notice{right:12px;left:12px;bottom:12px;width:auto}}'
+    ].join('')
+
+    var mount = function () {
+      try {
+        if (!document.body) { setTimeout(mount, 200); return }
+        if (document.querySelector('.dsh-acrylic-notice')) return
+
+        var style = document.createElement('style')
+        style.setAttribute('data-dsh-acrylic-notice', 'true')
+        style.textContent = CSS
+        document.head.appendChild(style)
+
+        var box = document.createElement('aside')
+        box.className = 'dsh-acrylic-notice'
+        box.setAttribute('role', 'status')
+
+        var h3 = document.createElement('h3')
+        h3.textContent = TEXT.title
+        box.appendChild(h3)
+
+        var lead = document.createElement('p')
+        lead.className = 'dsh-an-lead'
+        lead.textContent = TEXT.lead
+        box.appendChild(lead)
+
+        var ol = document.createElement('ol')
+        for (var i = 0; i < TEXT.steps.length; i++) {
+          var li = document.createElement('li')
+          var no = document.createElement('span')
+          no.className = 'dsh-an-no'
+          no.textContent = String(i + 1)
+          li.appendChild(no)
+          var body = document.createElement('span')
+          body.innerHTML = TEXT.steps[i]
+          li.appendChild(body)
+          ol.appendChild(li)
+        }
+        box.appendChild(ol)
+
+        var label = document.createElement('p')
+        label.className = 'dsh-an-label'
+        label.textContent = TEXT.repoLabel
+        box.appendChild(label)
+
+        var code = document.createElement('code')
+        code.textContent = REPO
+        box.appendChild(code)
+
+        var foot = document.createElement('div')
+        foot.className = 'dsh-an-foot'
+        foot.textContent = TEXT.foot
+        box.appendChild(foot)
+
+        var ok = document.createElement('button')
+        ok.type = 'button'
+        ok.textContent = TEXT.ok
+        ok.addEventListener('click', function () {
+          try { window.localStorage.setItem(NOTICE_KEY, 'seen') } catch (_) {}
+          box.parentNode && box.parentNode.removeChild(box)
+          style.parentNode && style.parentNode.removeChild(style)
+        })
+        box.appendChild(ok)
+
+        document.body.appendChild(box)
+      } catch (error) {
+        // 公告自己失败就算了，绝不影响插件
+        try { console.warn('[dsh-acrylic-light] notice skipped:', error) } catch (_) {}
+      }
+    }
+
+    setTimeout(mount, 1200)
+  } catch (_) {
+    // 整段公告彻底失败也无声无息，插件照常工作
+  }
+})()

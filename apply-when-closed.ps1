@@ -125,20 +125,75 @@ Write-Log "asar = $asar"
 Write-Log "exe  = $exe"
 
 # -- wait until app.asar is released --
-$deadline = (Get-Date).AddMinutes($TimeoutMinutes)
-$free = $false
-while ((Get-Date) -lt $deadline) {
+#
+# Why not rely on "can we open the file exclusively" alone:
+#   1. Windows releases file handles with a delay. Right after the process
+#      exits, Open(...,'None') can still fail, so the script thinks the app is
+#      still running and waits until it times out. The user sees "it ran but
+#      nothing happened".
+#   2. A read-only open ('Read') often succeeds even while the app runs, but an
+#      exclusive read/write open ('ReadWrite','None') is what we actually need.
+#      Mixing the two up produces wrong verdicts.
+#   3. The most reliable signal is that the process is gone. The file lock is
+#      only a secondary check.
+#
+# So: wait for the process to disappear, then for the file to become writable.
+# Only when both hold do we proceed.
+function Test-HarnessRunning {
+  $procs = Get-Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessName -eq 'DeepSeek Harness' -or ($_.Path -and $_.Path -eq $exe) }
+  return ($procs -ne $null)
+}
+
+function Test-AsarWritable {
   try {
     $stream = [System.IO.File]::Open($asar, 'Open', 'ReadWrite', 'None')
     $stream.Close()
-    $free = $true
-    break
+    return $true
   } catch {
-    Start-Sleep -Milliseconds 700
+    return $false
   }
 }
-if (-not $free) { Write-Log 'timeout: asar still locked'; exit 1 }
-Write-Log 'asar released'
+
+$deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+$free = $false
+$lastReport = Get-Date
+
+while ((Get-Date) -lt $deadline) {
+  $running = Test-HarnessRunning
+  $writable = Test-AsarWritable
+
+  if (-not $running -and $writable) {
+    $free = $true
+    break
+  }
+
+  # report status every 15s so the user is not left staring at a blank window
+  if (((Get-Date) - $lastReport).TotalSeconds -ge 15) {
+    $lastReport = Get-Date
+    if ($running) {
+      Write-Log 'waiting: DeepSeek Harness is still running'
+    } else {
+      Write-Log 'waiting: Harness exited, but app.asar is still locked (handle not released yet)'
+    }
+  }
+
+  Start-Sleep -Milliseconds 800
+}
+
+if (-not $free) {
+  $running = Test-HarnessRunning
+  if ($running) {
+    Write-Log 'FAILED: DeepSeek Harness is STILL RUNNING.'
+    Write-Log 'Quit it completely from the tray icon (right-click -> Exit), then run this again.'
+  } else {
+    Write-Log 'FAILED: app.asar is still locked even though Harness is gone.'
+    Write-Log 'A leftover process is probably holding it. End all "DeepSeek Harness" processes'
+    Write-Log 'in Task Manager, then run this again.'
+  }
+  exit 1
+}
+Write-Log 'asar released and writable'
 
 # -- patch: add backgroundMaterial only, never a transparent backgroundColor --
 Write-Log 'patching'
