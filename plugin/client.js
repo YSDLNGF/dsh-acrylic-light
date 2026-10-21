@@ -252,6 +252,23 @@ const GLASS_STYLE = [
   '  --dsw-alias-markdown-code-block:rgb(20 22 28 / 55%)!important;',
   '  --dsw-alias-markdown-code-block-banner:rgb(20 22 28 / 62%)!important;',
   '}',
+  /* ══ 文件预览卡：令牌层给实色（不透明）═════════════════════════════
+     用户口径：对话末尾的文件预览框，悬停显示文件内容时背景是透明的，
+     字号又小，压在壁纸上读不清；要求做成不透明、颜色跟随通用外观色。
+
+     为什么只改令牌、不加 DOM 选择器：
+       预览卡的容器与内容区都读 `--dsw-alias-bg-document-preview`
+       以及 bg-layer 系列；透明是我们把这些令牌改淡造成的。
+       令牌是官方 CSS 自己声明的位置，覆盖它不会碰任何 DOM 结构，
+       也不会与第三方插件的类名哈希冲突 —— 比猜[class*=] 安全得多。
+       （上一次崩溃就是往 DOM 上加硬选择器导致页面挂掉。）
+
+     颜色用 `--acrylic-surface-2`：深色 rgb(18 20 26)、浅色 rgb(255 255 255)，
+       与设置页外观一致，且**不带 alpha**，所以是不透明的。 */
+  'html[data-dsh-acrylic-light] body,',
+  'html[data-dsh-acrylic-light] body[data-ds-dark-theme]{',
+  '  --dsw-alias-bg-document-preview:var(--acrylic-surface-2,rgb(18 20 26))!important;',
+  '}',
 
   /* ── 深色主题：文字必须提亮，否则在深色玻璃上发灰看不清 ─────────
      DSH 的 label-primary 链路是
