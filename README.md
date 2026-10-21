@@ -121,10 +121,14 @@
 
 ## 卸载
 
-**只卸载插件（保留窗口补丁）**：设置 → **插件**（内置那页），
-找到 `dsh-acrylic-light`，点「卸载」。
+### 推荐：用 Harness 自带的卸载按钮
 
-**连同窗口材质一起还原**：
+**设置 → 插件**（内置那页）→ 找到 `dsh-acrylic-light` → 点 **「卸载」**。
+
+和卸载其它插件完全一样，不需要额外步骤。卸载只会移除插件本身，
+**窗口材质补丁仍留在 `app.asar` 里**（想连它一起还原，见下）。
+
+### 连同窗口材质一起还原
 
 ```powershell
 node uninstall.mjs
@@ -133,8 +137,37 @@ powershell -ExecutionPolicy Bypass -File .\restore-asar.ps1
 
 两者都做完再重启，恢复原生外观。
 
-> 卸载时若提示文件被占用（DSH 正在运行），重启后运行
-> `cleanup-uninstall.ps1` 清理残留即可。
+### 卸载按钮点了没反应 / 报错？
+
+这通常是插件的登记状态不一致。官方卸载依赖**四处状态**同时正确：
+
+| 位置 | 内容 |
+| --- | --- |
+| `package.json` → `dependencies` | `"dsh-acrylic-light": "github:YSDLNGF/dsh-acrylic-light"` |
+| `package.json` → `dsh.profile.bundles` | 数组里要有 `"dsh-acrylic-light"` |
+| `cordis.patch.yml` | `- insert:` 下要有 `id: dsh-acrylic-light` |
+| `node_modules/dsh-acrylic-light` | 插件目录存在 |
+
+**最常见的坑是第 2 项缺失**：插件装上了（依赖和目录都在），却没被登记进
+`bundles`。这时卸载按钮在 bundles 里找不到它，就会失败。
+
+手动补登记（`~/.dsh/profiles/desktop/package.json`）：
+
+```json
+"dsh": {
+  "profile": {
+    "bundles": [
+      "@deepseek-ai/dsh-base",
+      "@deepseek-ai/dsh-web-app",
+      "dsh-acrylic-light"
+    ]
+  }
+}
+```
+
+补好后重启 Harness，卸载按钮就能正常识别了。
+
+> 若提示文件被占用（DSH 仍在运行），重启后运行 `cleanup-uninstall.ps1` 清理残留。
 
 ---
 
