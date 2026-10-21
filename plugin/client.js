@@ -966,12 +966,43 @@ window.__ModuleLoader__.load({
 ;(function () {
   try {
     var NOTICE_KEY = 'dsh-acrylic-light:notice-v1'
+    var NOTICE_VERSION = 'v1'
     var REPO = 'https://github.com/YSDLNGF/dsh-acrylic-light'
+    var NOTICE_API = '/dsh-acrylic-light/notice'
 
-    // 已读就不再弹
-    try {
-      if (window.localStorage && window.localStorage.getItem(NOTICE_KEY) === 'seen') return
-    } catch (_) { /* 存储不可用：仍然显示，宁可多提醒一次 */ }
+    /* 「已读」的真相源是宿主文件，不是 localStorage。
+       DSH Desktop 每次启动都用随机端口（--port 0），origin 一变 localStorage
+       就空了 —— 只用本地存储会变成「点过知道了、重启又弹」。
+       所以先问宿主；宿主不可用（非 web profile / 路由未注册）才退回本地缓存。 */
+    var readSeen = function () {
+      return fetch(NOTICE_API, { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null })
+        .then(function (data) {
+          if (data && typeof data.seen === 'string') return data.seen
+          throw new Error('bad payload')
+        })
+        .catch(function () {
+          try {
+            return window.localStorage && window.localStorage.getItem(NOTICE_KEY) === 'seen'
+              ? NOTICE_VERSION
+              : ''
+          } catch (_) {
+            return ''
+          }
+        })
+    }
+
+    var writeSeen = function () {
+      // 两处都写：宿主文件（真相源）+ localStorage（宿主不可用时的兜底）
+      try { window.localStorage.setItem(NOTICE_KEY, 'seen') } catch (_) {}
+      try {
+        fetch(NOTICE_API, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ seen: NOTICE_VERSION }),
+        }).catch(function () {})
+      } catch (_) {}
+    }
 
     var ZH = {
       title: '注意事项',
@@ -1044,9 +1075,8 @@ window.__ModuleLoader__.load({
       '@media (max-width:520px){.dsh-acrylic-notice{right:12px;left:12px;bottom:12px;width:auto}}'
     ].join('')
 
-    var mount = function () {
+    var render = function () {
       try {
-        if (!document.body) { setTimeout(mount, 200); return }
         if (document.querySelector('.dsh-acrylic-notice')) return
 
         var style = document.createElement('style')
@@ -1099,7 +1129,8 @@ window.__ModuleLoader__.load({
         ok.type = 'button'
         ok.textContent = TEXT.ok
         ok.addEventListener('click', function () {
-          try { window.localStorage.setItem(NOTICE_KEY, 'seen') } catch (_) {}
+          // 写入宿主（真相源）+ 本地缓存，重启后不再弹
+          writeSeen()
           box.parentNode && box.parentNode.removeChild(box)
           style.parentNode && style.parentNode.removeChild(style)
         })
@@ -1112,7 +1143,25 @@ window.__ModuleLoader__.load({
       }
     }
 
-    setTimeout(mount, 1200)
+    /* 决定是否显示：先等宿主把「已读」告诉我们，再决定。
+       这样点过「知道了」的用户，重启（端口变了）也不会再看到；
+       从未点过的用户一定会看到。宿主不可用时 readSeen 会退回本地缓存。 */
+    var decide = function () {
+      try {
+        if (!document.body) { setTimeout(decide, 200); return }
+        readSeen().then(function (seen) {
+          if (seen === NOTICE_VERSION) return
+          render()
+        }).catch(function () {
+          // 连兜底都失败就显示一次，宁可多提醒
+          render()
+        })
+      } catch (error) {
+        try { console.warn('[dsh-acrylic-light] notice skipped:', error) } catch (_) {}
+      }
+    }
+
+    setTimeout(decide, 1200)
   } catch (_) {
     // 整段公告彻底失败也无声无息，插件照常工作
   }

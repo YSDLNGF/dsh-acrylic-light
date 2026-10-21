@@ -35,3 +35,4 @@ node_modules/
 Thumbs.db
 desktop.ini
 push-once.cmd
+修复卸载问题.cmd

@@ -19,13 +19,62 @@
  *   Wallpaper Engine 等工具下会指向过期文件，所以只作兜底。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
 export const name = 'acrylic'
 
 /** 路由：页面用同源 fetch 取壁纸。 */
 const ROUTE = '/dsh-acrylic-light/wallpaper'
+
+/**
+ * 路由：页面读写「已读公告版本」。
+ *
+ * 为什么必须有宿主侧存储（而不是只用 localStorage）：
+ *   DSH Desktop 每次启动都用随机端口（`--port 0`），页面的 origin 随之改变，
+ *   而 localStorage 是**按 origin 隔离**的 —— 重启后 origin 一变，
+ *   之前写入的标记就读不到了。所以「点过知道了、重启不再弹」这件事
+ *   必须存在不随端口变化的宿主文件里，localStorage 只能当缓存。
+ *   dsh-plugin-wallpaper-engine 用同一套思路（config.json 是唯一真相源）。
+ *
+ * 为什么整段包在 try/catch 里：
+ *   设置读写只是公告的附属能力。任何一步失败（目录不可写、JSON 损坏、
+ *   路由重复注册）都只应让公告退化为「每次加载都提示」，**绝不能**
+ *   影响壁纸路由、插件加载或页面渲染 —— 之前一次崩溃就是附属逻辑
+ *   顺着加载链把整页带崩。
+ */
+const NOTICE_ROUTE = '/dsh-acrylic-light/notice'
+
+/** 数据目录：`~/.dsh-acrylic-light`（与 wallpaper-engine 的约定一致）。 */
+function dataDir() {
+  const override = process.env.DSH_ACRYLIC_DATA_DIR
+  return override && override.trim() ? resolve(override.trim()) : join(homedir(), '.dsh-acrylic-light')
+}
+
+function configPath() {
+  return join(dataDir(), 'config.json')
+}
+
+/** 读配置；任何异常都回空对象，调用方不必 try/catch。 */
+function readConfig() {
+  try {
+    const raw = readFileSync(configPath(), 'utf8')
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 原子写：先写 .tmp 再 rename，崩溃不会留下半份文件。 */
+function writeConfig(config) {
+  const file = configPath()
+  const tmp = `${file}.tmp${process.pid}`
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(tmp, JSON.stringify(config), 'utf8')
+  renameSync(tmp, file)
+}
 
 /** 缓存：壁纸约 1MB，没必要每个请求都重读。 */
 let cache = { mtime: 0, bytes: null, mime: 'image/jpeg' }
@@ -127,6 +176,84 @@ export async function apply(ctx) {
           // 已注销
         }
       })
+
+      /* ── 公告已读状态路由 ──────────────────────────────────────────
+         独立 try/catch：注册失败只会让公告退化为「每次提示」，
+         壁纸路由与插件加载不受任何影响。 */
+      try {
+        const disposeNotice = hostCtx.webServer.register({
+          kind: 'exact',
+          path: NOTICE_ROUTE,
+          handler: (request, response) => {
+            const send = (status, body) => {
+              const text = JSON.stringify(body)
+              response.writeHead(status, {
+                'content-type': 'application/json; charset=utf-8',
+                'content-length': String(Buffer.byteLength(text)),
+                // 状态会变（用户点知道了），不许缓存
+                'cache-control': 'no-store',
+              })
+              response.end(text)
+            }
+
+            try {
+              if (request.method === 'GET' || request.method === 'HEAD') {
+                const config = readConfig()
+                send(200, {
+                  // 已经点过「知道了」的最高公告版本；空串表示从未点过
+                  seen: typeof config.noticeSeen === 'string' ? config.noticeSeen : '',
+                })
+                return
+              }
+
+              if (request.method === 'POST') {
+                let raw = ''
+                request.on('data', (chunk) => {
+                  // 防御：公告只会回一个很小的字符串，超过 1MB 一定是异常请求
+                  if (raw.length > 1024 * 1024) return
+                  raw += chunk
+                })
+                request.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(raw || '{}')
+                    const seen = typeof parsed.seen === 'string' ? parsed.seen.slice(0, 64) : ''
+                    const config = readConfig()
+                    config.noticeSeen = seen
+                    writeConfig(config)
+                    send(200, { ok: true, seen })
+                  } catch (error) {
+                    // 写失败不影响用户：下一次加载会再提示一次
+                    send(500, { ok: false, error: String(error?.message ?? error) })
+                  }
+                })
+                request.on('error', () => {
+                  try { send(400, { ok: false }) } catch { /* 已断开 */ }
+                })
+                return
+              }
+
+              send(405, { ok: false, error: 'method not allowed' })
+            } catch (error) {
+              // handler 内任何异常都不能冒泡出去
+              try {
+                response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+                response.end('notice route error')
+              } catch { /* 响应已关闭 */ }
+            }
+          },
+        })
+
+        ctx.on?.('dispose', () => {
+          try {
+            disposeNotice?.()
+          } catch {
+            // 已注销
+          }
+        })
+      } catch (error) {
+        // 公告状态路由不可用：页面侧回退到 localStorage，功能降级但不报错
+        console.warn('[dsh-acrylic-light] 公告状态路由未注册：', error?.message ?? error)
+      }
     })
   } catch (error) {
     // 拿不到 webServer（非 web profile）时静默跳过：
