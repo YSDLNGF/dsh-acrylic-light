@@ -18,16 +18,46 @@ function Find-First($paths) {
   return $null
 }
 
+function Get-InstallDirFromRegistry {
+  $roots = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+  )
+  foreach ($r in $roots) {
+    $hits = Get-ItemProperty $r -ErrorAction SilentlyContinue |
+      Where-Object { $_.DisplayName -match 'DeepSeek Harness' -or $_.DisplayLocation -match 'deepseek' }
+    foreach ($h in $hits) {
+      $loc = $null
+      if ($h.InstallLocation) { $loc = $h.InstallLocation }
+      elseif ($h.DisplayIcon -and $h.DisplayIcon -match '^([A-Za-z]:\\.*?)\\') { $loc = $Matches[1] }
+      if ($loc -and (Test-Path (Join-Path $loc 'resources\app.asar'))) { return $loc }
+    }
+  }
+  return $null
+}
+
 $asar = $Asar
+if (-not $asar) {
+  if ((Test-Path (Join-Path $asar 'resources\app.asar'))) { $asar = Join-Path $asar 'resources\app.asar' }
+}
 if (-not $asar) {
   $asar = Find-First @(
     'C:\Program Files\DeepSeek Harness\resources\app.asar'
     'C:\Program Files (x86)\DeepSeek Harness\resources\app.asar'
     (Join-Path $env:LOCALAPPDATA 'Programs\deepseek-harness\resources\app.asar')
-    'C:\Program Files\DeepSeek Harness\resources\app.asar'
+    (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness\resources\app.asar')
   )
 }
-if ($asar -eq $null) { Write-Host '找不到 app.asar，请用 -Asar 指定'; exit 2 }
+if (-not $asar) {
+  $installDir = Get-InstallDirFromRegistry
+  if ($installDir) { $asar = Join-Path $installDir 'resources\app.asar' }
+}
+if ($asar -eq $null) {
+  Write-Host '找不到 app.asar，请用 -Asar 指定'
+  Write-Host '例如: restore-asar.ps1 -Asar C:\path\to\resources\app.asar'
+  exit 2
+}
 
 # ── 找到备份 ────────────────────────────────────────────────
 if (-not $Backup) {
