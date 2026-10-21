@@ -1011,36 +1011,35 @@ window.__ModuleLoader__.load({
  * ══════════════════════════════════════════════════════════════════════════ */
 ;(function () {
   try {
-    var NOTICE_KEY = 'dsh-acrylic-light:notice-v1'
     var NOTICE_VERSION = 'v1'
     var REPO = 'https://github.com/YSDLNGF/dsh-acrylic-light'
     var NOTICE_API = '/dsh-acrylic-light/notice'
 
-    /* 「已读」的真相源是宿主文件，不是 localStorage。
-       DSH Desktop 每次启动都用随机端口（--port 0），origin 一变 localStorage
-       就空了 —— 只用本地存储会变成「点过知道了、重启又弹」。
-       所以先问宿主；宿主不可用（非 web profile / 路由未注册）才退回本地缓存。 */
+    /* 「已读」的唯一真相源是宿主文件（插件包根 .notice-state.json）。
+
+       ⚠ 为什么**绝不能**再退回 localStorage（第一版的错）：
+         卸载重装时宿主目录被删、状态清空，本来该重新弹公告；
+         但如果读宿主失败时退回 localStorage，而那份记录是**上一次
+         安装时写下的、还留在浏览器里**，就会读成「已读」→ 不弹。
+         用户的实际诉求是「只要安装就弹」，所以必须让状态与
+         插件目录严格同生共死，不能有第二个持久化位置。
+
+       宿主不可用时（非 web profile / 路由未注册 / 请求失败）：
+         一律当作「没读过」→ 弹公告。宁可多提醒一次，
+         也不要让该看到安装指引的人错过它。 */
     var readSeen = function () {
       return fetch(NOTICE_API, { cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null })
         .then(function (data) {
           if (data && typeof data.seen === 'string') return data.seen
-          throw new Error('bad payload')
+          return ''
         })
-        .catch(function () {
-          try {
-            return window.localStorage && window.localStorage.getItem(NOTICE_KEY) === 'seen'
-              ? NOTICE_VERSION
-              : ''
-          } catch (_) {
-            return ''
-          }
-        })
+        .catch(function () { return '' })
     }
 
+    /* 只写宿主，不写 localStorage —— 见上面 readSeen 的说明。
+       写失败不影响用户：本次关掉，下次加载会再提示一次。 */
     var writeSeen = function () {
-      // 两处都写：宿主文件（真相源）+ localStorage（宿主不可用时的兜底）
-      try { window.localStorage.setItem(NOTICE_KEY, 'seen') } catch (_) {}
       try {
         fetch(NOTICE_API, {
           method: 'POST',
