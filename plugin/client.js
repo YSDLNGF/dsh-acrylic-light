@@ -1059,24 +1059,27 @@ window.__ModuleLoader__.load({
           「如果窗口已经是磨砂效果，忽略本提示」。
        3. 判断依据是**视觉现象**（窗口有没有透出桌面、是不是磨砂玻璃），
           不是让用户理解"窗口材质补丁"这种术语。 */
+    /* 结构：标题 → 两个带边框的块 → 仓库地址 → 按钮。
+       第一块 = 原来那句"需要去 GitHub 下载补丁"（以前是标题下的浅灰小字，
+                现在升级成和下面同等分量的边框块）；
+       第二块 = "补丁和插件绑定 / 关闭不影响其他主题"。
+       不再有浅灰色小字说明。 */
     var ZH = {
       title: '使用提示',
-      lead: '装插件后需要去 GitHub 下载透明补丁文件运行后才有透明效果',
-      steps: [
+      blocks: [
+        '装插件后需要去 GitHub 下载透明补丁文件运行后才有透明效果',
         '补丁文件和插件绑定，缺一不可；如果不想用这个主题，<b>关闭后不影响其他主题效果</b>'
       ],
       repoLabel: 'GitHub 仓库地址',
-      foot: '',
       ok: '知道了'
     }
     var EN = {
       title: 'Please read',
-      lead: 'After installing, download and run the transparency patch from GitHub — the window only becomes transparent after that.',
-      steps: [
+      blocks: [
+        'After installing, download and run the transparency patch from GitHub — the window only becomes transparent after that.',
         'The patch and the plugin are bound together — both are required. If you do not want this theme, <b>turning it off does not affect other themes</b>.'
       ],
       repoLabel: 'GitHub repository',
-      foot: '',
       ok: 'Got it'
     }
     var TEXT = ZH
@@ -1098,39 +1101,29 @@ window.__ModuleLoader__.load({
       '.dsh-acrylic-notice h3{margin:0 0 10px;font-size:14px;font-weight:650;line-height:1.4;',
       'display:flex;align-items:center;gap:8px;color:#fff}',
       '.dsh-acrylic-notice h3::before{content:"";width:3px;height:14px;border-radius:2px;background:#4c9aff;flex:none}',
-      '.dsh-acrylic-notice .dsh-an-lead{margin:0 0 10px;font-size:12.5px;color:rgb(255 255 255 / 62%)}',
-      /* 单条说明（不带序号）：与列表项同一套底色与字号，但不需要左侧留位 */
-      '.dsh-acrylic-notice .dsh-an-single{margin:0 0 12px;padding:9px 12px;border-radius:10px;',
-      'background:rgb(255 255 255 / 6%);color:rgb(255 255 255 / 88%);font-size:12.5px;line-height:1.6}',
-      '.dsh-acrylic-notice .dsh-an-single b{color:#fff;font-weight:600}',
-      '.dsh-acrylic-notice ol{margin:0 0 12px;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}',
-      '.dsh-acrylic-notice li{position:relative;padding:9px 12px 9px 30px;border-radius:10px;',
-      'background:rgb(255 255 255 / 6%);color:rgb(255 255 255 / 88%);font-size:12.5px;line-height:1.6}',
-      '.dsh-acrylic-notice li b{color:#fff;font-weight:600}',
-      '.dsh-acrylic-notice .dsh-an-no{position:absolute;left:10px;top:10px;width:16px;height:16px;',
-      'border-radius:50%;background:rgb(76 154 255 / 22%);color:#7ab6ff;font-size:10px;font-weight:700;',
-      'display:flex;align-items:center;justify-content:center;line-height:1}',
+      /* 两个等分量的带边框块：同一套底色 + 1px 描边，视觉上对称。
+         第一块是"需要去 GitHub 下载补丁"，第二块是"绑定关系 / 关闭不影响"。 */
+      '.dsh-acrylic-notice .dsh-an-block{margin:0 0 10px;padding:10px 12px;border-radius:10px;',
+      'background:rgb(255 255 255 / 6%);border:.5px solid rgb(255 255 255 / 14%);',
+      'color:rgb(255 255 255 / 90%);font-size:12.5px;line-height:1.65}',
+      '.dsh-acrylic-notice .dsh-an-block b{color:#fff;font-weight:600}',
       '.dsh-acrylic-notice .dsh-an-label{margin:0 0 5px;font-size:11.5px;color:rgb(255 255 255 / 48%)}',
       '.dsh-acrylic-notice code{display:block;margin:0 0 12px;padding:9px 11px;border-radius:9px;',
       'background:rgb(255 255 255 / 9%);color:#9ecbff;',
       'font:400 12px/1.5 Consolas,ui-monospace,monospace;',
       'word-break:break-all;user-select:all;-webkit-user-select:all}',
-      '.dsh-acrylic-notice .dsh-an-foot{margin:0 0 13px;color:rgb(255 255 255 / 45%);font-size:11.5px;line-height:1.6}',
       '.dsh-acrylic-notice button{width:100%;padding:9px 14px;border:0;border-radius:10px;',
       'background:#3b82f6;color:#fff;font:inherit;font-size:13px;font-weight:550;cursor:pointer}',
       '.dsh-acrylic-notice button:hover{filter:brightness(1.1)}',
+      /* 浅色主题：白底 + 深色描边，保证两个块的边框在浅色下也看得见 */
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice{background:rgb(255 255 255 / 97%);color:#0f1115;',
       'border-color:rgba(15,17,21,.1);box-shadow:0 22px 60px rgb(0 0 0 / 22%),0 2px 8px rgb(0 0 0 / 8%)}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice h3{color:#0f1115}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-lead{color:rgba(15,17,21,.6)}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li{background:rgba(15,17,21,.045);color:rgba(15,17,21,.86)}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-single{background:rgba(15,17,21,.045);color:rgba(15,17,21,.86)}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-single b{color:#0f1115}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li b{color:#0f1115}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-no{background:rgba(59,130,246,.16);color:#1d6fd8}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-block{',
+      'background:rgba(15,17,21,.045);border-color:rgba(15,17,21,.12);color:rgba(15,17,21,.88)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-block b{color:#0f1115}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-label{color:rgba(15,17,21,.5)}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice code{background:rgba(15,17,21,.055);color:#0b62d6}',
-      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-foot{color:rgba(15,17,21,.5)}',
       '@media (max-width:520px){.dsh-acrylic-notice{right:12px;left:12px;bottom:12px;width:auto}}'
     ].join('')
 
@@ -1151,32 +1144,16 @@ window.__ModuleLoader__.load({
         h3.textContent = TEXT.title
         box.appendChild(h3)
 
-        var lead = document.createElement('p')
-        lead.className = 'dsh-an-lead'
-        lead.textContent = TEXT.lead
-        box.appendChild(lead)
-
-        /* 只有一条说明时不留编号 —— 用户口径是"只有一步"，
-           带个 ① 反而又像步骤清单。多于一条才渲染成带序号的列表。 */
-        if (TEXT.steps.length === 1) {
-          var single = document.createElement('p')
-          single.className = 'dsh-an-single'
-          single.innerHTML = TEXT.steps[0]
-          box.appendChild(single)
-        } else {
-          var ol = document.createElement('ol')
-          for (var i = 0; i < TEXT.steps.length; i++) {
-            var li = document.createElement('li')
-            var no = document.createElement('span')
-            no.className = 'dsh-an-no'
-            no.textContent = String(i + 1)
-            li.appendChild(no)
-            var body = document.createElement('span')
-            body.innerHTML = TEXT.steps[i]
-            li.appendChild(body)
-            ol.appendChild(li)
-          }
-          box.appendChild(ol)
+        /* 两个等分量的边框块。
+           第一块是"需要去 GitHub 下载补丁"（原来是标题下的浅灰小字，
+           用户要求把它升级成边框块，和下面那块对称）；
+           第二块是"补丁和插件绑定 / 关闭不影响其他主题"。
+           不再有浅灰小字（lead / foot 已删除）。 */
+        for (var b = 0; b < TEXT.blocks.length; b++) {
+          var block = document.createElement('div')
+          block.className = 'dsh-an-block'
+          block.innerHTML = TEXT.blocks[b]
+          box.appendChild(block)
         }
 
         var label = document.createElement('p')
@@ -1187,12 +1164,6 @@ window.__ModuleLoader__.load({
         var code = document.createElement('code')
         code.textContent = REPO
         box.appendChild(code)
-
-        var foot = document.createElement('div')
-        foot.className = 'dsh-an-foot'
-        foot.textContent = TEXT.foot
-        // foot 为空时不插入，避免底部留一条空白间距
-        if (TEXT.foot) box.appendChild(foot)
 
         var ok = document.createElement('button')
         ok.type = 'button'
