@@ -1061,24 +1061,22 @@ window.__ModuleLoader__.load({
           不是让用户理解"窗口材质补丁"这种术语。 */
     var ZH = {
       title: '使用提示',
-      lead: '界面样式已生效。关于窗口透明，请看下面两点：',
+      lead: '装插件后需要去 GitHub 下载透明补丁文件运行后才有透明效果',
       steps: [
-        '<b>如果窗口已经是磨砂玻璃</b>（能透出桌面壁纸）：说明补丁已装好，<b>直接忽略本提示</b>。',
-        '<b>如果窗口还是不透明的</b>：需要到 GitHub 下载透明补丁并运行，窗口才能透出桌面壁纸。'
+        '补丁文件和插件绑定，缺一不可；如果不想用这个主题，<b>关闭后不影响其他主题效果</b>'
       ],
-      repoLabel: '补丁下载地址',
-      foot: '补丁会等你退出 DSH，自动打补丁、校验并重新启动。此提示只出现一次。',
+      repoLabel: 'GitHub 仓库地址',
+      foot: '',
       ok: '知道了'
     }
     var EN = {
-      title: 'A quick note',
-      lead: 'The styling is active. About window transparency, see below:',
+      title: 'Please read',
+      lead: 'After installing, download and run the transparency patch from GitHub — the window only becomes transparent after that.',
       steps: [
-        '<b>If the window is already frosted glass</b> (the desktop shows through): the patch is in place — <b>ignore this note</b>.',
-        '<b>If the window is still opaque</b>: download the transparency patch from GitHub and run it, so the window can show the desktop wallpaper.'
+        'The patch and the plugin are bound together — both are required. If you do not want this theme, <b>turning it off does not affect other themes</b>.'
       ],
-      repoLabel: 'Patch download',
-      foot: 'The patch waits for you to quit DSH, then patches, verifies and relaunches. This note appears only once.',
+      repoLabel: 'GitHub repository',
+      foot: '',
       ok: 'Got it'
     }
     var TEXT = ZH
@@ -1101,6 +1099,10 @@ window.__ModuleLoader__.load({
       'display:flex;align-items:center;gap:8px;color:#fff}',
       '.dsh-acrylic-notice h3::before{content:"";width:3px;height:14px;border-radius:2px;background:#4c9aff;flex:none}',
       '.dsh-acrylic-notice .dsh-an-lead{margin:0 0 10px;font-size:12.5px;color:rgb(255 255 255 / 62%)}',
+      /* 单条说明（不带序号）：与列表项同一套底色与字号，但不需要左侧留位 */
+      '.dsh-acrylic-notice .dsh-an-single{margin:0 0 12px;padding:9px 12px;border-radius:10px;',
+      'background:rgb(255 255 255 / 6%);color:rgb(255 255 255 / 88%);font-size:12.5px;line-height:1.6}',
+      '.dsh-acrylic-notice .dsh-an-single b{color:#fff;font-weight:600}',
       '.dsh-acrylic-notice ol{margin:0 0 12px;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}',
       '.dsh-acrylic-notice li{position:relative;padding:9px 12px 9px 30px;border-radius:10px;',
       'background:rgb(255 255 255 / 6%);color:rgb(255 255 255 / 88%);font-size:12.5px;line-height:1.6}',
@@ -1122,6 +1124,8 @@ window.__ModuleLoader__.load({
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice h3{color:#0f1115}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-lead{color:rgba(15,17,21,.6)}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li{background:rgba(15,17,21,.045);color:rgba(15,17,21,.86)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-single{background:rgba(15,17,21,.045);color:rgba(15,17,21,.86)}',
+      'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-single b{color:#0f1115}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice li b{color:#0f1115}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-no{background:rgba(59,130,246,.16);color:#1d6fd8}',
       'body:not([data-ds-dark-theme]) .dsh-acrylic-notice .dsh-an-label{color:rgba(15,17,21,.5)}',
@@ -1152,19 +1156,28 @@ window.__ModuleLoader__.load({
         lead.textContent = TEXT.lead
         box.appendChild(lead)
 
-        var ol = document.createElement('ol')
-        for (var i = 0; i < TEXT.steps.length; i++) {
-          var li = document.createElement('li')
-          var no = document.createElement('span')
-          no.className = 'dsh-an-no'
-          no.textContent = String(i + 1)
-          li.appendChild(no)
-          var body = document.createElement('span')
-          body.innerHTML = TEXT.steps[i]
-          li.appendChild(body)
-          ol.appendChild(li)
+        /* 只有一条说明时不留编号 —— 用户口径是"只有一步"，
+           带个 ① 反而又像步骤清单。多于一条才渲染成带序号的列表。 */
+        if (TEXT.steps.length === 1) {
+          var single = document.createElement('p')
+          single.className = 'dsh-an-single'
+          single.innerHTML = TEXT.steps[0]
+          box.appendChild(single)
+        } else {
+          var ol = document.createElement('ol')
+          for (var i = 0; i < TEXT.steps.length; i++) {
+            var li = document.createElement('li')
+            var no = document.createElement('span')
+            no.className = 'dsh-an-no'
+            no.textContent = String(i + 1)
+            li.appendChild(no)
+            var body = document.createElement('span')
+            body.innerHTML = TEXT.steps[i]
+            li.appendChild(body)
+            ol.appendChild(li)
+          }
+          box.appendChild(ol)
         }
-        box.appendChild(ol)
 
         var label = document.createElement('p')
         label.className = 'dsh-an-label'
@@ -1178,7 +1191,8 @@ window.__ModuleLoader__.load({
         var foot = document.createElement('div')
         foot.className = 'dsh-an-foot'
         foot.textContent = TEXT.foot
-        box.appendChild(foot)
+        // foot 为空时不插入，避免底部留一条空白间距
+        if (TEXT.foot) box.appendChild(foot)
 
         var ok = document.createElement('button')
         ok.type = 'button'
