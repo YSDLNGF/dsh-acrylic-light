@@ -1049,31 +1049,36 @@ window.__ModuleLoader__.load({
       } catch (_) {}
     }
 
-    /* 文案口径（重要）：这段公告是在**重启之后**才被加载并显示的
-       —— 插件的前端代码只有在页面启动时才执行，安装当下的那一刻
-       DSH 只会显示它自己的「请重启使更改生效」。
-       所以这里绝不能写「请重启」，那是一句用户看到时已经做完的指令，
-       读起来会让人以为没生效。改成陈述现状 + 只讲剩下的那一步。 */
+    /* 文案口径（重要）：
+       1. 这段公告是在**重启之后**才被加载显示的 —— 插件前端代码只在页面
+          启动时执行，安装当下的那一刻 DSH 只显示它自己的「请重启使更改
+          生效」。所以绝不能写「请重启」，那是用户读到它时已经做完的事。
+       2. 不能断言「还差一步」：用户可能在重装前就已经打过补丁，
+          或者本来就不需要窗口透明。让**用户自己看效果判断**，
+          比让插件猜更可靠 —— 所以文案改成条件式：
+          「如果窗口已经是磨砂效果，忽略本提示」。
+       3. 判断依据是**视觉现象**（窗口有没有透出桌面、是不是磨砂玻璃），
+          不是让用户理解"窗口材质补丁"这种术语。 */
     var ZH = {
-      title: '还差一步',
-      lead: '插件已生效，界面样式现在是这套透明亚克力。',
+      title: '使用提示',
+      lead: '界面样式已生效。关于窗口透明，请看下面两点：',
       steps: [
-        '<b>剩下的一步</b>：到 GitHub 下载透明补丁并运行，窗口才能真正透出桌面壁纸。',
-        '<b>补丁会自动处理</b>：等你退出 DSH → 打补丁 → 校验 → 重新启动。'
+        '<b>如果窗口已经是磨砂玻璃</b>（能透出桌面壁纸）：说明补丁已装好，<b>直接忽略本提示</b>。',
+        '<b>如果窗口还是不透明的</b>：需要到 GitHub 下载透明补丁并运行，窗口才能透出桌面壁纸。'
       ],
-      repoLabel: '仓库地址（补丁从这里下载）',
-      foot: '不装补丁也能用，只是窗口不会透明、主面板仍是不透明的深色。此提示只出现一次。',
+      repoLabel: '补丁下载地址',
+      foot: '补丁会等你退出 DSH，自动打补丁、校验并重新启动。此提示只出现一次。',
       ok: '知道了'
     }
     var EN = {
-      title: 'One step left',
-      lead: 'The plugin is active — the translucent acrylic styling is already applied.',
+      title: 'A quick note',
+      lead: 'The styling is active. About window transparency, see below:',
       steps: [
-        '<b>What is left</b>: download the transparency patch from GitHub and run it, so the window can actually show the desktop wallpaper.',
-        '<b>The patch handles it</b>: it waits for you to quit DSH, patches, verifies, then relaunches for you.'
+        '<b>If the window is already frosted glass</b> (the desktop shows through): the patch is in place — <b>ignore this note</b>.',
+        '<b>If the window is still opaque</b>: download the transparency patch from GitHub and run it, so the window can show the desktop wallpaper.'
       ],
-      repoLabel: 'Repository (download the patch here)',
-      foot: 'The plugin works without the patch, but the window will not be transparent and the main panel stays dark. This note appears only once.',
+      repoLabel: 'Patch download',
+      foot: 'The patch waits for you to quit DSH, then patches, verifies and relaunches. This note appears only once.',
       ok: 'Got it'
     }
     var TEXT = ZH
