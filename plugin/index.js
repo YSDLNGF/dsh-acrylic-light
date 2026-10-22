@@ -18,7 +18,7 @@
  *   路径不变、换壁纸时内容自动更新。注册表里的 Wallpaper 值在
  *   Wallpaper Engine 等工具下会指向过期文件，所以只作兜底。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -161,7 +161,112 @@ function readWallpaper() {
   return null
 }
 
+/**
+ * 安装瞬间的原生提示框（宿主侧）。
+ *
+ * 为什么这里能"安装后立即弹"，而 client.js 里的公告不能：
+ *   插件被市场安装时，宿主侧会被**热挂载并立即执行**（市场日志里的
+ *   `exit=0 hot=true` 就是这个意思），不需要重启 DSH。而前端代码
+ *   （client.js）必须等页面重新加载才执行 —— 那已经是重启之后了。
+ *   所以"装上就能看到"的提示只能从这里发。
+ *
+ * 为什么用 Windows 消息框而不是别的：
+ *   - 宿主跑在独立 Node 进程里，没有 DOM，弹不出网页风格的浮层；
+ *   - MessageBox 由 Win32 直接绘制，不依赖 DSH 页面是否已刷新；
+ *   - 走 PowerShell 的 PresentationFramework 是最稳的方式（系统自带的 .NET），
+ *     不引入任何依赖，也不会因为缺模块而失败。
+ *
+ * 安全约束（这是硬要求，之前崩过一次）：
+ *   1. **异步、非阻塞**：用 spawn 而不是 execFileSync，宿主进程不会卡住；
+ *   2. **detached + unref**：对话框独立于插件生命周期，插件卸载也不影响它；
+ *   3. **整体 try/catch**：弹窗失败只写一行日志，绝不影响壁纸路由与插件加载；
+ *   4. **一次安装只弹一次**：用包根的状态文件去重，卸载即清除。
+ */
+function showInstallDialog() {
+  try {
+    const state = readConfig()
+    if (state.dialogShown === true) return
+  } catch {
+    // 读不到就当作没弹过
+  }
+
+  const repo = 'https://github.com/YSDLNGF/dsh-acrylic-light'
+  const lines = [
+    '插件已安装完成。',
+    '',
+    '现在界面样式已经生效，但"窗口透出桌面壁纸"还需要一个补丁：',
+    '',
+    '  1. 到下面的地址下载补丁包',
+    '  2. 完全退出 DeepSeek Harness（托盘右键 → 退出）',
+    '  3. 双击补丁包里的 enable-transparency.cmd',
+    '',
+    '如果窗口已经是磨砂玻璃效果，说明补丁早就装好了，忽略本提示即可。',
+    '',
+    repo,
+  ].join('\n')
+
+  /* 把文案写到临时文件再让 PowerShell 读，而不是拼进 -Command 字符串。
+     理由：PowerShell 的单引号、反引号、换行、中文编码各有各的转义规则，
+     拼字符串时任何一处写错都会让脚本报错或显示乱码。
+     写文件后脚本里只剩一个路径，几乎不可能出错。
+     文件用 UTF-8 带 BOM：PowerShell 5.1 靠 BOM 才能正确识别中文。 */
+  let msgFile
+  try {
+    msgFile = join(dirname(configPath()), '.install-dialog.txt')
+    writeFileSync(msgFile, '\uFEFF' + lines, 'utf8')
+  } catch {
+    // 写不出文件就不弹了，绝不冒险
+    return
+  }
+
+  const escaped = String(msgFile).replace(/'/g, "''")
+  const script = [
+    'Add-Type -AssemblyName PresentationFramework',
+    `$t = Get-Content -LiteralPath '${escaped}' -Raw -Encoding UTF8`,
+    "[System.Windows.MessageBox]::Show($t,'dsh-acrylic-light','OK','Information') | Out-Null",
+  ].join('; ')
+
+  try {
+    const child = spawn(
+      'powershell',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+      { detached: true, stdio: 'ignore', windowsHide: true },
+    )
+    child.unref()
+  } catch (error) {
+    // 弹窗失败就退化为"只写日志"，不影响任何功能
+    try {
+      console.warn('[dsh-acrylic-light] 安装提示框未能显示：', error?.message ?? error)
+    } catch { /* ignore */ }
+    return
+  }
+
+  // 记下"已弹过"，避免热挂载重复执行时反复弹窗
+  try {
+    const state = readConfig()
+    state.dialogShown = true
+    writeConfig(state)
+  } catch {
+    // 写不进去就下次再弹，无害
+  }
+}
+
 export async function apply(ctx) {
+  /* 安装后立即弹的提示框。
+     放在 apply 最外层、独立于 webServer 注入 —— 即使这个 profile 没有
+     webServer（非 web 环境），提示也该出现。
+
+     ⚠ 这里**同步调用**，不套 setTimeout。
+       实测：在这个宿主环境里，apply 返回后安排的长延时定时器不一定能跑
+       到（进程生命周期不由插件掌握），延时方案会让提示永远不出现。
+       而 showInstallDialog 自身是「写文件 + spawn(detached) + unref」，
+       全是毫秒级操作，同步调用不会卡住宿主。 */
+  try {
+    showInstallDialog()
+  } catch {
+    // showInstallDialog 内部已有兜底；这里再兜一层，确保 apply 继续往下走
+  }
+
   try {
     ctx.inject(['webServer'], (hostCtx) => {
       const dispose = hostCtx.webServer.register({

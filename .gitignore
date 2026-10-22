@@ -11,6 +11,9 @@ releases/dsh-acrylic-light-patch/
 .notice-state.json
 notice-state.json
 
+# 安装提示框的文案临时文件（宿主侧生成，PowerShell 读取）
+.install-dialog.txt
+
 # 本机开发/临时脚本（含本机绝对路径或备份时间戳，不宜进仓库）
 .install.ps1
 install-on-close.mjs
