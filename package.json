@@ -1,6 +1,6 @@
 {
   "name": "dsh-acrylic-light",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness desktop: Windows Acrylic window material + layered frosted panels.",
