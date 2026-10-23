@@ -418,7 +418,12 @@ const GLASS_STYLE = [
        scrollBody 就又填满到面板底部，裁切失效（实测"没有裁切"）。
      保持 seat 在流内作 flex 兄弟即可（DSH seat 自带 flex:none + sticky，
      作为列尾兄弟它就是原高度在底部）。 */
-  'html[data-dsh-acrylic-light] [data-composer-seat]{',
+  /* ⚠ flex:none 只加在 **active** 阶段：
+     hero（新会话）时 seat 仍在 scrollBody 内部、由官方
+     .composerHero{align-self:center} 居中显示；若不分阶段一律 flex:none，
+     会干扰它在居中容器里的表现。 */
+  'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
   '  flex:none!important;',
   '}',
   'html[data-dsh-acrylic-light] [data-conversation-content]{',
@@ -715,11 +720,56 @@ window.__ModuleLoader__.load({
         const findSeat = () => document.querySelector('[data-conversation-content] [data-composer-seat]')
         const findScroll = () => document.querySelector('[data-conversation-content] [data-conversation-scroll]')
 
+        /* ── 阶段判断：官方靠 data-phase 切换输入栏位置 ────────────────
+           官方 CSS（dsh-client-ui-conversation）：
+             root[data-phase=hero]    新会话 -> scrollBody{justify-content:center}
+                                       + .composerHero{align-self:center}
+                                       => 输入栏在**中间**
+             root[data-phase=active]  对话中 -> .composerSeat{position:sticky;bottom:0}
+                                       => 输入栏贴底
+           settling 是过渡期（composerSeat visibility:hidden）。
+
+           我们的裁切做法是"把 seat 从 scrollBody 里抬出来当 flex 兄弟"，
+           它只能产生"永远贴底"。新会话时官方本来要让输入栏居中，
+           我们却把 seat 拽到底部 —— 用户看到的一瞬正常然后跳到底，
+           就是这个原因。
+
+           所以：**只在 active 阶段抬 seat**（那时官方本就要它贴底，
+           抬出来 scrollBody 才会被压缩、文字才能硬断在上沿）；
+           hero / settling 阶段把 seat 放回 scrollBody 原位，
+           完全交还官方布局。 */
+        const phaseOf = () => {
+          const node = findBody()
+          if (!node) return ''
+          // 官方把 phase 写在 body 上；embedded 变体写在 data-content-phase
+          return node.getAttribute('data-phase') ?? node.getAttribute('data-content-phase') ?? ''
+        }
+
+        /** 把 seat 放回 scrollBody 内部（官方默认位置），撤销裁切。 */
+        const lowerSeat = () => {
+          const seat = findSeat()
+          const scroll = findScroll()
+          if (!seat || !scroll) return false
+          if (seat.parentElement === scroll) return true // 已在原位
+          scroll.appendChild(seat)
+          return true
+        }
+
         const liftSeat = () => {
           const seat = findSeat()
           const host = findBody()
           const scroll = findScroll()
           if (!seat || !host || !scroll || scroll === seat) return false
+
+          /* hero / settling / 空值一律交还官方布局。
+             空值按 hero 处理更安全：新会话刚创建的那一帧属性可能还没写，
+             这时若去 lift 就会把居中布局拽掉。 */
+          const phase = phaseOf()
+          if (phase !== 'active') {
+            lowerSeat()
+            return false
+          }
+
           if (seat.parentElement === host) return true // 已在正确位置
           // 插到 scrollBody 之后（WidthControls 之前）：flex 顺序 scroll→seat→…
           // 让 body 的 flex 布局把 scrollBody 压缩到 seat 上沿（真正产生硬裁）。
