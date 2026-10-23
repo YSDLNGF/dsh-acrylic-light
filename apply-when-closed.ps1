@@ -2,6 +2,7 @@ param(
   [int]$TimeoutMinutes = 120,
   [string]$Asar,
   [string]$Exe,
+  [string]$Node,
   [switch]$NoRestart
 )
 
@@ -59,9 +60,16 @@ function Get-InstallDirFromRegistry {
 
 # -- locate app.asar (explicit, standard paths, then registry) --
 $asar = $Asar
-if (-not $asar) {
-  # also accept a bare install dir via -Asar
-  if ((Test-Path (Join-Path $asar 'resources\app.asar'))) { $asar = Join-Path $asar 'resources\app.asar' }
+if ($asar) {
+  # A bare install directory may be passed instead of the archive itself.
+  #
+  # This check belongs INSIDE the `if ($asar)` branch. It used to sit under
+  # `if (-not $asar)`, i.e. exactly when $asar was the empty string, and
+  # Join-Path throws ParameterArgumentValidationErrorEmptyStringNotAllowed
+  # on that -- the crash seen before the archive was even looked for.
+  if (Test-Path (Join-Path $asar 'resources\app.asar')) {
+    $asar = Join-Path $asar 'resources\app.asar'
+  }
 }
 if (-not $asar) {
   $asar = Find-First @(
@@ -99,20 +107,81 @@ if ($asar -eq $null) {
   exit 2
 }
 
-# -- locate node: PATH first, then the runtime bundled with DSH --
-$nodeCmd = (Get-Command node -ErrorAction SilentlyContinue).Source
+# -- locate node: PATH first, then the runtimes bundled with DSH --
+#
+# Search order and why:
+#   1. PATH -- a user who has Node installed gets it immediately.
+#   2. <install>\resources\... -- a packaged DSH may ship its own runtime
+#      next to the app (handled by Find-First below).
+#   3. %USERPROFILE%\.dsh\dsh-runtimes -- the CLI/web layout keeps a
+#      downloaded runtime here (Node 22+ satisfies package engines).
+#   4. Any node.exe found under common install roots, as a last resort.
+#
+# The old version only looked at PATH and %USERPROFILE%\.dsh\dsh-runtimes,
+# so on a fresh machine (a VM, or a DSH installed somewhere else) it printed
+# "node.exe not found." and stopped -- even though the archive was already
+# located. Report what was searched so the user can act instead of guessing.
+$nodeCmd = $Node
+if ($nodeCmd) {
+  if (-not (Test-Path $nodeCmd)) {
+    Write-Host "The -Node path does not exist: $nodeCmd"
+    exit 2
+  }
+}
+if (-not $nodeCmd) {
+  $nodeCmd = (Get-Command node -ErrorAction SilentlyContinue).Source
+}
+
 if ($nodeCmd -eq $null) {
-  $candidates = @(
-    (Join-Path $env:USERPROFILE '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe')
-  )
+  $candidates = @()
+
+  # (a) runtime shipped beside the DSH install
+  if ($asar) {
+    $roots = @( (Split-Path (Split-Path $asar -Parent) -Parent) )
+    foreach ($root in $roots) {
+      if ($root -and (Test-Path $root)) {
+        $candidates += (Join-Path $root 'node.exe')
+        $candidates += (Join-Path $root 'resources\node.exe')
+      }
+    }
+  }
+
+  # (b) the DSH runtime cache
+  $candidates += (Join-Path $env:USERPROFILE '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe')
   $runtime = Join-Path $env:USERPROFILE '.dsh\dsh-runtimes'
   if (Test-Path $runtime) {
-    $found = Get-ChildItem $runtime -Recurse -Filter node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $found = Get-ChildItem $runtime -Recurse -Filter node.exe -ErrorAction SilentlyContinue |
+      Sort-Object FullName | Select-Object -First 1
     if ($found -ne $null) { $candidates += $found.FullName }
   }
+
+  # (c) common Node.js install locations
+  $candidates += 'C:\Program Files\nodejs\node.exe'
+  $candidates += 'C:\Program Files (x86)\nodejs\node.exe'
+  $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe')
+  $candidates += (Join-Path $env:PROGRAMFILES 'nodejs\node.exe')
+
   $nodeCmd = Find-First $candidates
 }
-if ($nodeCmd -eq $null) { Write-Host 'node.exe not found.'; exit 2 }
+
+if ($nodeCmd -eq $null) {
+  Write-Host ''
+  Write-Host 'node.exe not found.'
+  Write-Host ''
+  Write-Host 'The patch tool (patch-asar.mjs) runs on Node.js, and no copy was found in:'
+  Write-Host '  - PATH'
+  Write-Host "  - $env:USERPROFILE\.dsh\dsh-runtimes  (DSH runtime cache)"
+  Write-Host '  - C:\Program Files\nodejs, %LOCALAPPDATA%\Programs\nodejs'
+  Write-Host ''
+  Write-Host 'Fix it by either:'
+  Write-Host '  1. Installing Node.js 18+ from https://nodejs.org and re-running this script, or'
+  Write-Host '  2. Starting DSH once (it downloads its runtime into the cache above), or'
+  Write-Host '  3. Passing the path explicitly:'
+  Write-Host '       powershell -ExecutionPolicy Bypass -File apply-when-closed.ps1 -Node "C:\path\to\node.exe"'
+  Write-Host ''
+  exit 2
+}
+Write-Host "node: $nodeCmd"
 
 function Write-Log([string]$message) {
   $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $message
@@ -241,9 +310,11 @@ try {
 }
 
 # -- verify the patch really landed in the archive --
+$verified = $false
 if ($patched) {
   $check = & $nodeCmd (Join-Path $here 'verify-asar.mjs') --asar $asar 2>&1
   Write-Log ($check -join "`n")
+  if ($LASTEXITCODE -eq 0) { $verified = $true }
 }
 
 # -- relaunch so the user is not left without the app --
@@ -255,3 +326,27 @@ if (-not $NoRestart -and $exe -ne $null) {
 }
 
 Write-Log '=== done ==='
+
+# Exit code must reflect the real outcome.
+#
+# The old script ended with a bare Write-Log, so a failed patch still exited
+# 0 -- enable-transparency.cmd then printed "Patch applied, restarting" over
+# a failure, and the user had no idea the patch had not been written.
+# Reported cases that reach here: "already patched" (patch-asar refuses to
+# apply twice) and anchor mismatches after a DSH update.
+if (-not $patched) {
+  Write-Host ''
+  Write-Host 'The patch was NOT applied. See the messages above.'
+  Write-Host 'Most common cause: this app.asar was already patched (the script'
+  Write-Host 'refuses to apply it twice). If the window is already frosted,'
+  Write-Host 'there is nothing to do. To force a re-patch, restore the original'
+  Write-Host 'first:  powershell -ExecutionPolicy Bypass -File restore-asar.ps1'
+  exit 1
+}
+if (-not $verified) {
+  Write-Host ''
+  Write-Host 'The patch ran but verification did not pass. Do not restart yet;'
+  Write-Host "check $log for details."
+  exit 1
+}
+exit 0
