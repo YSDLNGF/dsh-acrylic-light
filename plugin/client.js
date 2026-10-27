@@ -738,11 +738,40 @@ window.__ModuleLoader__.load({
            抬出来 scrollBody 才会被压缩、文字才能硬断在上沿）；
            hero / settling 阶段把 seat 放回 scrollBody 原位，
            完全交还官方布局。 */
+        /* 读当前阶段。
+           ⚠ data-phase 到底挂在哪？官方源码写得清楚（dsh-client-ui-conversation）:
+
+                <div className={ConversationRoot.root} data-phase={phase}>
+                  ... <div className="body" data-conversation-content> ...
+
+           即 **data-phase 在最外层 .root 上**，不在 [data-conversation-content] 上;
+           后者只有 embedded 变体才带 data-content-phase。
+
+           早先版本只查 [data-conversation-content]，主变体永远读到空串 ——
+           空串被当作 hero，于是永不裁切;偶发读到别的值又表现为"贴底"。
+           正确做法: 从内容节点 closest 向上找带 data-phase 的祖先。 */
         const phaseOf = () => {
           const node = findBody()
-          if (!node) return ''
-          // 官方把 phase 写在 body 上；embedded 变体写在 data-content-phase
-          return node.getAttribute('data-phase') ?? node.getAttribute('data-content-phase') ?? ''
+
+          // 1) 从内容节点向上找带 data-phase 的祖先（主变体的 .root 就在上面）
+          if (node && node.closest) {
+            const owner = node.closest('[data-phase]')
+            if (owner) {
+              const v = owner.getAttribute('data-phase')
+              if (v) return v
+            }
+            // 2) embedded 变体: 内容节点自己带 data-content-phase
+            const own = node.getAttribute('data-content-phase')
+            if (own) return own
+          }
+
+          // 3) 兜底: 文档里任意带 data-phase 的会话根
+          const rootEl = document.querySelector('[data-phase]')
+          if (rootEl) {
+            const v = rootEl.getAttribute('data-phase')
+            if (v) return v
+          }
+          return ''
         }
 
         /** 把 seat 放回 scrollBody 内部（官方默认位置），撤销裁切。 */
