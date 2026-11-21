@@ -422,44 +422,34 @@ const GLASS_STYLE = [
   '  --acrylic-sheen:255 255 255;',
   '}',
 
-  /* ══ 输入栏上沿的淡出裁切：沿用 DSH 原生做法 ══════════════════════
-     用户口径："原版 DSH 本来就有这个效果" —— 照抄即可，不要自己造。
+  /* ══ 座位层：透明 + 一层磨砂，文字从它背后滚过 ═════════════════
+     DSH 新版把 seat 留在 scrollBody 里、`position:sticky; bottom:0`，
+     聊天内容从它背后滚过（旧版插件为了"裁切"把它搬走，代价是输入栏
+     无法聚焦 —— 已彻底停用，见 apply() 里的说明）。
 
-     原生就在 .composerSeat 上（ConversationRoot.module.css）：
-       background: linear-gradient(
-         180deg,
-         color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px,
-         var(--dsw-alias-bg-base) 36px
-       );
-     即 **顶部 36px 淡出带，36px 以下实色**。px 停点而非百分比，
-     所以草稿变高时只是实色区变宽，淡出带不会被拉长。
+     既然文字本来就会经过输入栏下方，正好可以让 seat 自己承担磨砂：
+       · seat 是合成层（DSH 给了 will-change:transform），
+         backdrop-filter 能真实采样到它背后的聊天文字 —— 这才叫毛玻璃；
+       · 但 seat 铺满底部一整条（含左右留白），所以**颜色仍然只给卡片**，
+         seat 这层只做 blur + 极淡压暗，避免整条发灰。
 
-     ⚠ 为什么用本主题时看不到：两个原因叠加 ——
-       1. 为了让窗口亚克力透上来，我们把 --dsw-alias-bg-base 改成了
-          transparent，那条渐变的终点于是也透明，淡出带等于不存在；
-       2. 旧版还额外写了 `background-image:none`，直接把它删掉了。
-     所以这不是"缺少裁切"，是**原生裁切被我们拔掉了**。
-
-     修法：不发明新机制，把那条渐变按原样写回来，只把终点色从"透明"
-     换成主题自己的面板色（--acrylic-seat-base），36px 照抄原生。
-     与三列背景同源，所以看不到接缝。
-
-     ⚠ 不需要任何 DOM 操作：不搬 seat、不装 MutationObserver、不加 mask、
-       不改 padding。之前为"硬裁"把 seat 搬出 scrollBody 并装 observer
-       每 250ms 回抬 —— 移动正在聚焦的 contenteditable 会让它立刻 blur，
-       那就是"点一下亮一下马上暗掉、打不出字"的根因。纯 CSS 出不了这种 bug。 */
+     ⚠ 不能给 seat 铺不透明底：那会让亚克力被垫在一层灰上面，看起来发闷。 */
   'html[data-dsh-acrylic-light] [data-composer-seat],',
   'html[data-dsh-acrylic-light] [class*="an3WzG_composerSeat"]{',
-  '  background:linear-gradient(',
-  '    180deg,',
-  '    rgb(var(--acrylic-seat-base) / 0%) 0px,',
-  '    rgb(var(--acrylic-seat-base)) 36px',
-  '  )!important;',
+  /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base 0, bg-base 36px)
+     在透明主题里就是底部那条黑带，清掉它，改用自己的模糊层。 */
+  '  background:transparent!important;',
+  '  background-image:none!important;',
+  '  backdrop-filter:blur(18px) saturate(130%)!important;',
+  '  -webkit-backdrop-filter:blur(18px) saturate(130%)!important;',
   '}',
-  /* 淡出带终点色：与三列/面板同一套值，避免出现一条不同色的横带。 */
-  'html[data-dsh-acrylic-light]{--acrylic-seat-base:16 18 23}',
-  'html[data-dsh-acrylic-light]:not(:has(body[data-ds-dark-theme])):not([data-ds-dark-theme]){',
-  '  --acrylic-seat-base:248 250 252;',
+  /* hero（新会话）阶段 seat 在居中容器里、背后没有滚动内容，
+     模糊只会把壁纸再糊一次并让边缘发脏 —— 这阶段关掉。 */
+  'html[data-dsh-acrylic-light] [data-phase="hero"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-content-phase="hero"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-phase="settling"] [data-composer-seat]{',
+  '  backdrop-filter:none!important;',
+  '  -webkit-backdrop-filter:none!important;',
   '}',
 
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
@@ -633,50 +623,6 @@ const GLASS_STYLE = [
   /* 遮罩层：原来 --dsw-mask-blur 是 none，补上模糊 */
   'html[data-dsh-acrylic-light] body{--dsw-mask-blur:none!important}',
 
-  /* ══ 插件页「已安装 / 发现」栏：粘住 + 下沿淡出（与输入栏同一套做法）══
-     用户口径：插件界面向下滑动时，这一栏要像输入栏那样"裁切" ——
-     滚过去的内容在它下沿淡出，不许从它背后直接透出来。
-
-     结构（dsh-client-ui-settings-plugins / PluginsSettingsSection.tsx）：
-       设置面板 .AnXs9G_panel
-         └ .AnXs9G_options        ← 真正的滚动容器（overflow-y:auto）
-             └ .XAL7Ya_section    ← 插件页
-                 └ .XAL7Ya_tabs   ← role=tablist，即「已安装 / 发现」
-
-     ⚠ 这里**照抄输入栏的做法**，不自己发明：
-       输入栏的裁切是 seat 自带的「顶部 36px 淡出带 + 下方实色」渐变。
-       同一套搬到 tab 栏的下沿：上方实色（栏本身），下方 12px 淡出到透明，
-       内容滚到那里就溶进淡出带里 —— 观感是"被裁掉"，而不是"透出来"。
-       为什么淡出带取 12px 而不是 36px：tab 栏本身就矮（约 38px），
-       36px 的淡出带会把整栏吃掉，剩下一条虚影。
-
-     为什么要 sticky：不粘住的话它跟着内容一起滚走，"下沿"这个位置根本
-     不存在，也就谈不上裁切。粘在滚动容器顶部（top:0）。
-     横向用负 margin + padding 撑满，避免内容从滚动容器 padding 的缝隙露出。 */
-  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]{',
-  '  position:sticky!important;',
-  '  top:0!important;',
-  '  z-index:2!important;',
-  '  margin-inline:-24px!important;',
-  '  padding-inline:24px!important;',
-  /* 上方实色、下沿 12px 淡出 —— 与输入栏 seat 同源同色，不出现接缝。 */
-  '  background:linear-gradient(',
-  '    180deg,',
-  '    rgb(var(--acrylic-seat-base)) calc(100% - 12px),',
-  '    rgb(var(--acrylic-seat-base) / 0%) 100%',
-  '  )!important;',
-  '  border-bottom:0!important;',
-  '}',
-  /* 原来那条 0.5px 分隔线在淡出带上会变成一道硬边，去掉它换回渐变本身。 */
-  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]::after{',
-  '  content:none!important;',
-  '}',
-  /* 栏内的 tab 按钮要压在新底色之上，否则半透明文字会被渐变吃掉。 */
-  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tab"]{',
-  '  position:relative!important;',
-  '  z-index:1!important;',
-  '}',
-
   /* ── 设置面板 ───────────────────────────────────────────────
      ⚠ 只管设置面板自己的类名，**不要**写通用的 [class*="_panel"]：
        新版里每个包都有 *_panel（任务面板、插件面板…），一刀切会把
@@ -784,30 +730,15 @@ window.__ModuleLoader__.load({
          * 采样到它背后的内容。
          */
 
-        /* ══ 输入栏裁切：纯 CSS，不做任何 DOM 搬移 ═══════════════════════
-           用户口径："原版 DSH 本来就有这个效果" —— 这是对的。
+        /* 保留查询函数：restoreSeat 与调试仍需要。 */
+        const findBody = () => document.querySelector('[data-conversation-content]')
+        const findSeat = () => document.querySelector('[data-composer-seat]')
+        const findScroll = () => document.querySelector('[data-conversation-scroll]')
 
-           原生就在 ConversationRoot.module.css 的 .composerSeat 上：
-             background: linear-gradient(180deg, transparent 0px, bg-base 36px);
-           即 seat 顶部 36px 是淡出带、下面实色。内容滚到那里淡出并被压住
-           —— 这就是原版看到的"裁切"。
-
-           本主题之前把它弄没了，两个原因：
-             1. 为了让窗口亚克力透上来，把 --dsw-alias-bg-base 改成了
-                transparent —— 那条渐变的终点于是也透明，淡出带等于不存在；
-             2. 旧版还写了 `background-image:none`，直接把它删掉。
-           GLASS_STYLE 现在把这条渐变按原样写回来，只把终点色换成主题面板色
-           （--acrylic-seat-base），36px 停点照抄原生。
-
-           ⚠ 因此这里不需要任何 DOM 操作：不搬 seat、不装 MutationObserver、
-             不加 mask、不改 padding。之前为"硬裁"把 seat 搬出 scrollBody 并装
-             observer 每 250ms 回抬，而移动正在聚焦的 contenteditable 会立刻
-             blur —— 那就是"点一下亮一下马上暗掉、打不出字"的根因。
-           纯 CSS 出不了这种 bug。 */
-
-        /* 阶段判断（只读，供调试）：hero / active / settling。 */
+        /* 阶段判断：官方靠 data-phase 切换输入栏位置（hero 居中 / active 贴底）。
+           只读不写，供调试与兜底。 */
         const phaseOf = () => {
-          const node = document.querySelector('[data-conversation-content]')
+          const node = findBody()
           if (node && node.closest) {
             const owner = node.closest('[data-phase]')
             if (owner) {
@@ -821,10 +752,15 @@ window.__ModuleLoader__.load({
           return rootEl?.getAttribute('data-phase') ?? ''
         }
 
-        /* 停用/卸载时无需还原：没有动过 DOM。 */
-        const restoreSeat = () => {}
+        /* 卸载时把 seat 放回 scrollBody —— 只在**它真的被移出去过**时才动。
+           正常情况下它一直在原位，这里直接短路，不产生任何 DOM 操作。 */
+        const restoreSeat = () => {
+          const seat = findSeat()
+          const scroll = findScroll()
+          if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
+        }
 
-        /* 兼容 paint() 的调用点。 */
+        /* 不再搬移 DOM。保留同名空实现，让 paint() 的调用点保持简单。 */
         const ensureLifted = () => {}
 
         const paint = (state) => {
@@ -909,8 +845,8 @@ window.__ModuleLoader__.load({
         // 壁纸异步加载，不阻塞首帧
         loadWallpaper()
 
-        // 注：不搬 DOM —— 裁切由 seat 自带的 36px 淡出带完成，
-        // 所以没有 observer 或位置回抬需要维护。
+        // 注：座位不再移动（见 ensureLifted 停用说明），所以不需要
+        // 座位位置由 ensureLifted 的 MutationObserver 在 lift 时校正。
 
         ctx.effect(() => () => {
           disposeGlass()
