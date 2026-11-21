@@ -302,38 +302,6 @@ const GLASS_STYLE = [
   '  --dsw-static-neutral-bluish-700:rgb(240 243 247)!important;',
   '}',
 
-  /* ══ 已归档会话：保持灰色（本次新增）═══════════════════════════════
-     问题：本主题把深色下的文字整体提亮成纯白（上面那组 token），
-     连 DSH 给"已归档会话"准备的灰色也被一起提亮了 —— 侧栏里已归档
-     条目变成纯白，和未归档的完全分不出来。
-
-     官方口径（dsh-client-ui-workspace / Rows.module.css）：
-       .sessionRow.archived .title{color:var(--dsw-alias-label-caption)}
-     深色下 label-caption 本来是 bluish-600 = rgb(129 133 140) 的中灰。
-     我们要做的就是**只把这一处**还原成灰，其余文字维持纯白不变。
-
-     ⚠ 为什么不直接把 --dsw-alias-label-caption 调回灰：
-       它还被输入框下方小字、状态行、pin 指示等共用好几个地方引用，
-       改 token 会把那些一起弄灰 —— 用户要求"其他的字色不变"。
-       所以这里精确命中"已归档行内部的文字"。
-
-     ⚠ 类名是构建期哈希（当前 wnFoaW_archived），用 `_archived` 后缀匹配
-       可以跨版本存活；`_hoverArchived` 不含 `_archived` 子串，不会误命中。 */
-  'html[data-dsh-acrylic-light] body[data-ds-dark-theme] [class*="_archived"] [class*="_title"],',
-  'html[data-dsh-acrylic-light] body[data-ds-dark-theme] [class*="_archived"] [class*="_searchResultTitle"],',
-  'html[data-dsh-acrylic-light] body[data-ds-dark-theme] [class*="_archived"] [class*="_searchResultWorkspace"],',
-  'html[data-dsh-acrylic-light] body[data-ds-dark-theme] [class*="_archived"] [class*="_searchResultSnippet"]{',
-  /* 取官方深色档位的那个中灰：既明显区别于纯白，又不像 label-dimmed 那样淡到看不清。 */
-  '  color:rgb(129 133 140)!important;',
-  '}',
-  /* 浅色主题同理：DSH 浅色下 label-caption 是 bluish-400 的深灰，
-     本主题没提亮浅色文字，这里不额外处理 —— 但为了"归档就该看起来是灰的"
-     在两个主题下一致，浅色下显式给一个中灰。 */
-  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="_archived"] [class*="_title"],',
-  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="_archived"] [class*="_searchResultTitle"]{',
-  '  color:rgb(120 125 132)!important;',
-  '}',
-
   /* ══ 文字不进输入栏：交给 DSH 原生布局 + 输入栏透明 ══════════
      输入的座位层（[data-composer-seat]）是单独的条，吸在容器底部，
      聊天内容在它上方的滚动区滚动，本来就不会跑进输入栏区域。
@@ -360,11 +328,14 @@ const GLASS_STYLE = [
   'html[data-dsh-acrylic-light] [class*="_bottomRow"]{background:transparent!important}',
 
   /* 主面板内部的容器同样清透明（ConversationRoot / 聊天区）。
-     ⚠ 只清背景色，不动布局。
-     ⚠ 这里**刻意不用** `[class*="_root"]`：新版 DSH 里以 _root 结尾的
-       类名非常多（会话根、聊天根、各种子组件），一刀切会把它们的底色
-       全部抽掉，反而让本该有底的浮层也变透明。只认带 data-phase 的
-       会话根 —— 它由 ConversationMainPanel 渲染，类名变了也不会失效。 */
+     ⚠ 只清背景色，不动布局：ConversationRoot 还负责 composerSeat 的
+     底部渐变与 phase 状态，那些规则保持原样。
+
+     ⚠ 新版修正：原来这里是 [class*="哈希_root"] / _frame / _scroll。
+     DSH 换掉哈希前缀后，去掉前缀的 [class*="_root"] 会命中**大量**组件
+     （任何 XXX_root），把它们的底色一起抽掉；[class*="_scroll"] 同理。
+     会话根改用 data-phase —— 由 ConversationMainPanel 渲染，
+     类名怎么变都还在，且不会误伤别的组件。 */
   'html[data-dsh-acrylic-light] [data-phase]{background:transparent!important}',
 
   /* ══ 浮层统一兜底：悬停预览 / tooltip / 气泡 ═══════════════════
@@ -422,34 +393,43 @@ const GLASS_STYLE = [
   '  --acrylic-sheen:255 255 255;',
   '}',
 
-  /* ══ 座位层：透明 + 一层磨砂，文字从它背后滚过 ═════════════════
-     DSH 新版把 seat 留在 scrollBody 里、`position:sticky; bottom:0`，
-     聊天内容从它背后滚过（旧版插件为了"裁切"把它搬走，代价是输入栏
-     无法聚焦 —— 已彻底停用，见 apply() 里的说明）。
-
-     既然文字本来就会经过输入栏下方，正好可以让 seat 自己承担磨砂：
-       · seat 是合成层（DSH 给了 will-change:transform），
-         backdrop-filter 能真实采样到它背后的聊天文字 —— 这才叫毛玻璃；
-       · 但 seat 铺满底部一整条（含左右留白），所以**颜色仍然只给卡片**，
-         seat 这层只做 blur + 极淡压暗，避免整条发灰。
-
-     ⚠ 不能给 seat 铺不透明底：那会让亚克力被垫在一层灰上面，看起来发闷。 */
+  /* 座位层必须完全透明：它铺满底部一整条，一旦有底色，
+     亚克力就被垫在一层灰上面，看起来发闷。 */
   'html[data-dsh-acrylic-light] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [class*="an3WzG_composerSeat"]{',
-  /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base 0, bg-base 36px)
-     在透明主题里就是底部那条黑带，清掉它，改用自己的模糊层。 */
+  'html[data-dsh-acrylic-light] [class*="_composerSeat"]{',
   '  background:transparent!important;',
   '  background-image:none!important;',
-  '  backdrop-filter:blur(18px) saturate(130%)!important;',
-  '  -webkit-backdrop-filter:blur(18px) saturate(130%)!important;',
   '}',
-  /* hero（新会话）阶段 seat 在居中容器里、背后没有滚动内容，
-     模糊只会把壁纸再糊一次并让边缘发脏 —— 这阶段关掉。 */
-  'html[data-dsh-acrylic-light] [data-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-content-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-phase="settling"] [data-composer-seat]{',
-  '  backdrop-filter:none!important;',
-  '  -webkit-backdrop-filter:none!important;',
+  /* active 态 DSH 会盖一条 linear-gradient（文字渐隐用），
+     在透明主题里它就是底部那条黑带，必须清掉。 */
+  'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-phase="active"] [class*="_composerSeat"],',
+  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
+  '  background:transparent!important;',
+  '  background-image:none!important;',
+  '}',
+
+  /* ══ 文字硬裁在输入栏上沿：把输入栏座抬成滚动容器的兄弟 ═══
+     做法：JS 把 seat 从 scrollBody 里 append 到 [data-conversation-content]
+     （会话面板 body）。body 是 flex-direction:column，seat 自带 flex:none
+     （DSH 原生高度），于是 flex 布局会**自动把 scrollBody 压缩到
+     "输入栏上沿"** —— 滚动容器在 seat 顶部截止，聊天内容滚到底就
+     硬断在输入栏上沿，不会钻进输入栏背后。这是真正的"硬裁"。
+
+     ⚠ 不要给 seat 设 position:absolute —— 会把它移出 flex 流，
+       scrollBody 就又填满到面板底部，裁切失效（实测"没有裁切"）。
+     保持 seat 在流内作 flex 兄弟即可（DSH seat 自带 flex:none + sticky，
+     作为列尾兄弟它就是原高度在底部）。 */
+  /* ⚠ flex:none 只加在 **active** 阶段：
+     hero（新会话）时 seat 仍在 scrollBody 内部、由官方
+     .composerHero{align-self:center} 居中显示；若不分阶段一律 flex:none，
+     会干扰它在居中容器里的表现。 */
+  'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
+  '  flex:none!important;',
+  '}',
+  'html[data-dsh-acrylic-light] [data-conversation-content]{',
+  '  position:relative!important;',
   '}',
 
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
@@ -458,18 +438,31 @@ const GLASS_STYLE = [
      窗口底部** —— 因为负 margin 改的是容器自身的盒子，
      容器的边框跟着下缘一起移动。
 
-     现在**完全不碰布局**：输入栏位置、滚动容器尺寸全部保持 DSH 原生。 */
+     现在**完全不碰布局**：输入栏位置、滚动容器尺寸全部保持 DSH 原生。
+     代价是输入框背后没有页面内内容可糊（背后只有 DWM 已糊平的壁纸），
+     所以毛玻璃的观感来自「白雾 + 描边 + 高光」这三层材质线索，
+     而不是来自"糊掉背后的文字"。
+
+     ⚠ 不要再为了"让模糊可见"去改 scrollBody / composerSeat 的
+       margin、padding、position。那会移动官方布局，属于侵入。 */
 
   /* ── 卡片本体：毛玻璃 ─────────────────────────────────────────
      目标：**看得出是一块毛玻璃**——半透明、有白雾、有边框和高光。
 
      ⚠ 这一节**完全不碰布局**。位置、尺寸、margin、padding 一律沿用
-       DSH 原生值，输入栏就在官方位置。
+       DSH 原生值，输入栏就在官方位置。上一版为了"让背后有内容可糊"
+       去改滚动容器的负 margin，结果把边框拖到了窗口底部 —— 已全部撤销。
 
-     三层材质线索（卡片自己负责这三层，模糊由上面的 seat 提供）：
-       ① 白雾（半透明白，提亮、显"厚"）
-       ② 0.5px 发丝描边 + 上缘内高光（交代"这里有一块板"）
-       ③ 外投影（把它从背景里抬起来）
+     关于 backdrop-filter：保留着，但要知道它的局限 ——
+       DSH 里 scrollBody 与 composerSeat 是**兄弟**（flex column 排列），
+       聊天内容只在 scrollBody 内部滚动，不会跑到输入框背后。
+       所以卡片背后通常只有 DWM 已经糊平的壁纸，
+       backdrop-filter 再糊一次几乎看不出变化。
+       真正让观感成立的，是下面这三层材质线索：
+         ① 白雾（半透明白，提亮、显"厚"）
+         ② 0.5px 发丝描边 + 上缘内高光（交代"这里有一块板"）
+         ③ 外投影（把它从背景里抬起来）
+       在没有可糊内容的前提下，这三层才是"像毛玻璃"的主要来源。
 
      ⚠ 白雾别调太高：实测 28% 会把本来就弱的模糊彻底盖平（边缘能量 1.03），
        8% 才平衡。 */
@@ -582,27 +575,24 @@ const GLASS_STYLE = [
      ⚠ 不要再单独写 background:none —— 会因后定义把 blur 那条压掉。 */
 
   /* ── 侧栏会话列表底部的渐隐条 ───────────────────────────────
-     DSH 的 .*_scrollFade 是会话列表底部 24px 的遮罩：
+     DSH 的 ._9lTDKa_fade 是会话列表底部 24px 的遮罩：
        background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill))
        position: absolute; bottom: 0; height: 24px
      它的本意是让滚动内容"淡出"。但本主题把 --dsw-specific-sidebar-fill
      改成了半透明深色，这条渐变就变成压在账号区上方的黑色小渐变，很难看。
      macOS 版本来就是 display:none，这里对齐 macOS 的做法直接隐藏。
 
-     ⚠ 这里的类名是**构建期哈希**（原先是 9lTDKa，新版变成别的前缀），
-       DSH 每次升级都会变。用 `_scrollFade` 后缀匹配可以跨版本存活：
-       新版 SidebarRoot.module.css 里这个类就叫 .scrollFade。
      ⚠ 不要写成通用的 [class*="_fade"]：聊天区的 _fadeTop/_fadeBottom
-       是正常的滚动遮罩（用 mask-image 实现），不该被一起干掉。 */
+     是正常的滚动遮罩（用 mask-image 实现），不该被一起干掉。 */
   'html[data-dsh-acrylic-light] [class*="_scrollFade"]{display:none!important}',
 
   /* ══ 浮层（设置面板 / 二级菜单 / 对话框）统一磨砂 ══════════════
      实测 DSH 这两类浮层的结构（类名是构建期哈希，但后缀稳定）：
 
-       设置面板  .AnXs9G_overlay > .AnXs9G_mask + .AnXs9G_panel
+       设置面板  .wCInkW_overlay > .wCInkW_mask + .wCInkW_panel
          mask  : background:var(--dsw-alias-bg-mask-1); backdrop-filter:var(--dsw-mask-blur)
          panel : background:var(--dsw-alias-bg-layer-2);  ← 没有 backdrop-filter
-       对话框    .*_dialog
+       对话框    ._root_o6lrb_6 > ._mask_o6lrb_18 + ._dialog_o6lrb_33
          mask  : backdrop-filter:var(--dsw-mask-blur)
          dialog: background:var(--dsw-alias-bg-layer-2)   ← 没有 backdrop-filter
 
@@ -623,17 +613,13 @@ const GLASS_STYLE = [
   /* 遮罩层：原来 --dsw-mask-blur 是 none，补上模糊 */
   'html[data-dsh-acrylic-light] body{--dsw-mask-blur:none!important}',
 
-  /* ── 设置面板 ───────────────────────────────────────────────
-     ⚠ 只管设置面板自己的类名，**不要**写通用的 [class*="_panel"]：
-       新版里每个包都有 *_panel（任务面板、插件面板…），一刀切会把
-       它们全部涂成同一块不透明板。这里用 settings-general 包的前缀，
-       DSH 升级后前缀变了也只是这条样式失效，不会误伤别处。 */
-  'html[data-dsh-acrylic-light] [class*="AnXs9G_panel"]{',
+  /* ── 设置面板 ─────────────────────────────────────────────── */
+  'html[data-dsh-acrylic-light] [data-shortcut-modal="settings"]{',
   '  background:var(--acrylic-overlay-panel-dark)!important;',
   '  backdrop-filter:none!important;',
   '  -webkit-backdrop-filter:none!important;',
   '}',
-  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="AnXs9G_panel"]{',
+  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [data-shortcut-modal="settings"]{',
   '  background:var(--acrylic-overlay-panel-light)!important;',
   '}',
 
@@ -647,10 +633,7 @@ const GLASS_STYLE = [
   '  background:var(--acrylic-overlay-panel-light)!important;',
   '}',
 
-  /* ── 菜单 / 下拉的材质层 ─────────────────────────────────────
-     旧版这里是 `[class*="_material_ri079"]`（构建期哈希，早失效了）。
-     新版 DSH 的菜单底色统一走 --dsw-specific-menu 令牌，上面已经覆盖，
-     所以这条不再需要单独的类名规则 —— 留着只会是一条永远不匹配的死规则。 */
+  /* ── 菜单 / 下拉：它们本来就有 blur(40px)，这里统一强度并确保底色够实 ── */
 
   /* 兜底：任何 role=dialog / menu / listbox 的浮层都补上模糊，
      覆盖上面没枚举到的第三方浮层。 */
@@ -709,59 +692,191 @@ window.__ModuleLoader__.load({
         let current = { ...DEFAULTS }
 
         /**
-         * 输入栏不再做任何 DOM 搬移。
+         * 文字裁切 —— 把输入栏座从滚动容器里"抬出去"。
          *
-         * 历史做法（已删除）：把 `[data-composer-seat]` 从 scrollBody 里抬出去，
-         * 靠 flex 把滚动区压缩到输入栏上沿，实现"文字硬裁"。
+         * 为什么这么做：纯 CSS 蒙版方案的裁切线是相对消息容器的，会随文本滚动，
+         * 钉不到屏幕固定位置，且会误削消息 —— 已废弃。要"固定位置 + 文字不进
+         * 输入栏"且输入栏透明，唯一可靠办法是把输入栏座从滚动容器里移出来，
+         * 让滚动容器的高度不再包含输入栏 —— 聊天内容滚动到底就正好止于输入栏上沿。
          *
-         * 删掉的原因只有一条，但足够致命：**它让输入栏不能输入。**
-         *   · composerSeat 是 React 托管的孩子，新版又给它加了
-         *     `position:sticky; bottom:0; z-index:9; will-change:transform`；
-         *   · 搬出去后 React 下次 commit 会放回去，MutationObserver 再搬出来，
-         *     如此反复；
-         *   · 移动一个**正在聚焦的 contenteditable** 会立刻让它 blur ——
-         *     用户看到"点一下边框亮起（:focus-within）随即暗掉、打不出字"。
-         *   新会话能用，是因为 hero 阶段本来就不搬（只搬 active 阶段）。
-         *
-         * 现在完全交给 DSH 原生布局：seat 留在 scrollBody 里 sticky 贴底，
-         * 聊天文字从它背后滚过，由 seat 自己的一层 backdrop-filter 糊掉
-         * （见 GLASS_STYLE 的 seat 规则）。DSH 给 seat 设的
-         * `will-change:transform` 让它本身是合成层，backdrop-filter 正好能
-         * 采样到它背后的内容。
+         * 风险：composerSeat 是 React 托管的孩子（scrollBody.children = [Views, seat]），
+         * 移动它会和 React 的 fiber 树产生分歧。历史教训：在初次渲染期间热移动
+         * （rAF/setTimeout 内 + MutationObserver 高频回抬）会在冷启动时破坏首屏 →
+         * 主面板空白。这里改用「更晚、更轻、防抖」的策略：
+         *   1. 移动只在 paint() 里触发（插件每次 paint 时）；
+         *   2. 初次移动推迟到会话面板确认渲染稳定之后；
+         *   3. 之后用**防抖**的 observer 在 React 把 seat 放回时慢速回抬，
+         *      不贴身紧咬，避免在 React commit 的中途插手。
          */
-
-        /* 保留查询函数：restoreSeat 与调试仍需要。 */
+        let observer = null
         const findBody = () => document.querySelector('[data-conversation-content]')
-        const findSeat = () => document.querySelector('[data-composer-seat]')
-        const findScroll = () => document.querySelector('[data-conversation-scroll]')
+        const findSeat = () => document.querySelector('[data-conversation-content] [data-composer-seat]')
+        const findScroll = () => document.querySelector('[data-conversation-content] [data-conversation-scroll]')
 
-        /* 阶段判断：官方靠 data-phase 切换输入栏位置（hero 居中 / active 贴底）。
-           只读不写，供调试与兜底。 */
+        /* ── 阶段判断：官方靠 data-phase 切换输入栏位置 ────────────────
+           官方 CSS（dsh-client-ui-conversation）：
+             root[data-phase=hero]    新会话 -> scrollBody{justify-content:center}
+                                       + .composerHero{align-self:center}
+                                       => 输入栏在**中间**
+             root[data-phase=active]  对话中 -> .composerSeat{position:sticky;bottom:0}
+                                       => 输入栏贴底
+           settling 是过渡期（composerSeat visibility:hidden）。
+
+           我们的裁切做法是"把 seat 从 scrollBody 里抬出来当 flex 兄弟"，
+           它只能产生"永远贴底"。新会话时官方本来要让输入栏居中，
+           我们却把 seat 拽到底部 —— 用户看到的一瞬正常然后跳到底，
+           就是这个原因。
+
+           所以：**只在 active 阶段抬 seat**（那时官方本就要它贴底，
+           抬出来 scrollBody 才会被压缩、文字才能硬断在上沿）；
+           hero / settling 阶段把 seat 放回 scrollBody 原位，
+           完全交还官方布局。 */
+        /* 读当前阶段。
+           ⚠ data-phase 到底挂在哪？官方源码写得清楚（dsh-client-ui-conversation）:
+
+                <div className={ConversationRoot.root} data-phase={phase}>
+                  ... <div className="body" data-conversation-content> ...
+
+           即 **data-phase 在最外层 .root 上**，不在 [data-conversation-content] 上;
+           后者只有 embedded 变体才带 data-content-phase。
+
+           早先版本只查 [data-conversation-content]，主变体永远读到空串 ——
+           空串被当作 hero，于是永不裁切;偶发读到别的值又表现为"贴底"。
+           正确做法: 从内容节点 closest 向上找带 data-phase 的祖先。 */
         const phaseOf = () => {
           const node = findBody()
+
+          // 1) 从内容节点向上找带 data-phase 的祖先（主变体的 .root 就在上面）
           if (node && node.closest) {
             const owner = node.closest('[data-phase]')
             if (owner) {
               const v = owner.getAttribute('data-phase')
               if (v) return v
             }
+            // 2) embedded 变体: 内容节点自己带 data-content-phase
             const own = node.getAttribute('data-content-phase')
             if (own) return own
           }
+
+          // 3) 兜底: 文档里任意带 data-phase 的会话根
           const rootEl = document.querySelector('[data-phase]')
-          return rootEl?.getAttribute('data-phase') ?? ''
+          if (rootEl) {
+            const v = rootEl.getAttribute('data-phase')
+            if (v) return v
+          }
+          return ''
         }
 
-        /* 卸载时把 seat 放回 scrollBody —— 只在**它真的被移出去过**时才动。
-           正常情况下它一直在原位，这里直接短路，不产生任何 DOM 操作。 */
+        /** 把 seat 放回 scrollBody 内部（官方默认位置），撤销裁切。 */
+        const lowerSeat = () => {
+          const seat = findSeat()
+          const scroll = findScroll()
+          if (!seat || !scroll) return false
+          if (seat.parentElement === scroll) return true // 已在原位
+          scroll.appendChild(seat)
+          return true
+        }
+
+        const liftSeat = () => {
+          const seat = findSeat()
+          const host = findBody()
+          const scroll = findScroll()
+          if (!seat || !host || !scroll || scroll === seat) return false
+
+          /* hero / settling / 空值一律交还官方布局。
+             空值按 hero 处理更安全：新会话刚创建的那一帧属性可能还没写，
+             这时若去 lift 就会把居中布局拽掉。 */
+          const phase = phaseOf()
+          if (phase !== 'active') {
+            lowerSeat()
+            return false
+          }
+
+          if (seat.parentElement === host) return true // 已在正确位置
+          // 插到 scrollBody 之后（WidthControls 之前）：flex 顺序 scroll→seat→…
+          // 让 body 的 flex 布局把 scrollBody 压缩到 seat 上沿（真正产生硬裁）。
+          scroll.insertAdjacentElement('afterend', seat)
+          return true
+        }
+
+        let liftTimer = null
+        const scheduleLift = () => {
+          if (liftTimer !== null) return
+          liftTimer = window.setTimeout(() => {
+            liftTimer = null
+            try { liftSeat() } catch {}
+          }, 250)
+        }
+
+        /* ── 为什么 observer 观察 document.body 而不是 scrollBody ────────
+           原来观察 `[data-conversation-scroll]` 那个具体节点。问题是：
+           用户切到「插件」「自动化任务」等页面再切回会话时，React 会把
+           整棵会话子树卸载重建 —— 旧的 scrollBody 节点已经被移除，
+           observer 挂在一个**已脱离文档的节点**上，从此永远收不到通知，
+           于是新 seat 没人回抬，裁切消失（重启后正常，因为那是首次挂载）。
+
+           改成观察 document.body（subtree: true）：
+             1. body 本身不会随页面切换被替换，observer 一直有效；
+             2. 任何子树的增删都会触发，切回会话时新 seat 一出现就能捕获；
+             3. 仍然走 250ms 防抖 + liftSeat 的"已在正确位置就返回"短路，
+                不会频繁操作 DOM。
+
+           代价是回调触发次数变多，但回调只做一件事：设一个 250ms 防抖定时器，
+           定时器到点才真正查 DOM。开销可忽略。 */
+        const startObserver = () => {
+          if (observer) return
+          observer = new MutationObserver(() => scheduleLift())
+          // body 一定存在（插件在渲染层加载时已挂载），退化情况用 documentElement
+          const target = document.body ?? document.documentElement
+          if (!target) return
+          observer.observe(target, { childList: true, subtree: true })
+        }
+
+        const stopObserver = () => {
+          if (observer) { observer.disconnect(); observer = null }
+          if (liftTimer !== null) { window.clearTimeout(liftTimer); liftTimer = null }
+          if (ensureLifted && ensureLifted.cancelBoot) ensureLifted.cancelBoot()
+        }
+
         const restoreSeat = () => {
+          stopObserver()
           const seat = findSeat()
           const scroll = findScroll()
           if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
         }
 
-        /* 不再搬移 DOM。保留同名空实现，让 paint() 的调用点保持简单。 */
-        const ensureLifted = () => {}
+        const ensureLifted = () => {
+          /* 冷启动保护：首次移动与监听都推迟，等 React 首屏渲染稳定后再动，
+             避免在初次 reconciliation 中途移动 seat → 主面板空白。
+
+             ⚠ 这个保护只该用于「进程内的第一次挂载」。
+             原实现用 `ensureLifted.inited` 做一次性闸门，副作用是：
+             用户切到插件页 / 自动化任务页再切回会话时，DOM 已被 React
+             重建，需要重新 lift + 重新挂 observer，但 inited 已是 true，
+             只走到下面的 scheduleLift —— 而 observer 当时还没启动，
+             这一次 lift 就成了唯一一次尝试，之后无人回抬，裁切消失。
+
+             现在：首次仍延迟 900ms（保护首屏），但**每次都确保 observer 在跑**，
+             这样切回会话后新 DOM 一出现就由 observer 驱动回抬。 */
+          if (!ensureLifted.inited) {
+            ensureLifted.inited = true
+            let bootTimer = null
+            const boot = () => {
+              bootTimer = null
+              try { liftSeat() } catch {}
+              startObserver()
+            }
+            bootTimer = window.setTimeout(boot, 900)
+            ensureLifted.cancelBoot = () => {
+              if (bootTimer !== null) { window.clearTimeout(bootTimer); bootTimer = null }
+            }
+            return
+          }
+          // 之后每次调用：确保监听在跑，并排一次防抖 lift。
+          // startObserver 内部有 `if (observer) return`，重复调用是安全的。
+          startObserver()
+          scheduleLift()
+        }
 
         const paint = (state) => {
           current = { ...DEFAULTS, ...state }
