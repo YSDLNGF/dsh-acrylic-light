@@ -1,4 +1,4 @@
-﻿# 诊断：为什么打了补丁窗口还是不透明。
+# 诊断：为什么打了补丁窗口还是不透明。
 #
 # 只看四件事，每一件都能单独决定成败：
 #   1. 目标 app.asar 里到底有没有 backgroundMaterial（补丁真的写进去了吗）
@@ -70,13 +70,35 @@ if (-not $asar) {
 
   $hasMaterial = $text.Contains('backgroundMaterial: "acrylic"')
   $hasTransparentTitle = $text.Contains('color: "#00000000",')
-  # 检查主窗口分支里是否混入了会禁用材质的透明 backgroundColor
-  $hasBadBg = $text -match '&& primary \? \{[\s\S]{0,300}?backgroundColor: "#00000000"'
+
+  # 主窗口分支必须把 backgroundColor 写成 "#00000000"。
+  #
+  # ⚠ 旧版这段逻辑是反的：它把 `backgroundColor: "#00000000"` 标成
+  #   "会禁用材质"，还把 `transparent: true` 当作正常 —— 正好说反了。
+  #   Electron 文档的口径：backgroundMaterial 要生效，窗口表面必须允许 alpha；
+  #   而 `transparent: true` 会走 layered window 路径，DWM 材质反而失效。
+  #
+  # ⚠ 判断"材质打了没"必须**限定在主窗口分支内**，不能用简单的 Contains：
+  #   DSH 的欢迎小窗（preload-welcome）本来就带 backgroundMaterial: "acrylic"，
+  #   于是整份归档永远包含这个字符串 —— 用 Contains 判断会永远显示"已打补丁"，
+  #   用户明明没打成功却看到 OK。这里改成带锚点的正则。
+  $hasMaterial = [bool]($text -match 'process\.platform === "win32" && primary \? \{[\s\S]{0,400}?backgroundMaterial: "acrylic"')
+  $hasTransparentTitle = $text.Contains('color: "#00000000",')
+  $hasTransparentBg = [bool]($text -match '&& primary \? \{[\s\S]{0,400}?backgroundColor: "#00000000"')
+  $hasOpaqueBg = [bool]($text -match '&& primary \? \{[\s\S]{0,400}?backgroundColor: chromeFallbackFill\(\)')
+  $hasLayerFlag = [bool]($text -match '&& primary \? \{[\s\S]{0,400}?transparent: true')
+  # 建窗之后还会被 setBackgroundColor 刷回不透明色 —— 新版这两处很关键。
+  $hasRepaintOpaque = [bool]($text -match 'if \(process\.platform === "win32"\) window\.setBackgroundColor\(chromeFallbackFill\(\)\)')
 
   Write-Host ''
   Write-Host "  主窗口有 backgroundMaterial : $(if($hasMaterial){'是 OK'}else{'否  ← 补丁没打进去'})" -ForegroundColor $(if($hasMaterial){'Green'}else{'Red'})
-  Write-Host "  标题栏 overlay 已透明      : $(if($hasTransparentTitle){'是 OK'}else{'否'})" -ForegroundColor $(if($hasTransparentTitle){'Green'}else{'Yellow'})
-  Write-Host "  主窗口无透明 backgroundColor: $(if($hasBadBg){'否 ← 这会禁用材质'}else{'是 OK'})" -ForegroundColor $(if($hasBadBg){'Red'}else{'Green'})
+  Write-Host "  主窗口底色已透明             : $(if($hasTransparentBg){'是 OK'}else{'否  ← 不透明底色会盖住材质'})" -ForegroundColor $(if($hasTransparentBg){'Green'}else{'Red'})
+  Write-Host "  主窗口无透明层模式标记       : $(if($hasLayerFlag){'否 ← transparent:true 会让材质失效'}else{'是 OK'})" -ForegroundColor $(if($hasLayerFlag){'Red'}else{'Green'})
+  Write-Host "  标题栏 overlay 已透明        : $(if($hasTransparentTitle){'是 OK'}else{'否'})" -ForegroundColor $(if($hasTransparentTitle){'Green'}else{'Yellow'})
+  Write-Host "  建窗后未被刷回不透明         : $(if($hasRepaintOpaque){'否 ← 切主题/重进工作区会变黑'}else{'是 OK'})" -ForegroundColor $(if($hasRepaintOpaque){'Red'}else{'Green'})
+  if ($hasOpaqueBg) {
+    Write-Host '  [X] 主窗口分支仍是不透明底色 —— 补丁没打上，或被打到了旧版本上。' -ForegroundColor Red
+  }
 }
 
 # ---------------------------------------------------------------------------

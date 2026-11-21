@@ -144,16 +144,21 @@ if ($asar -eq $null) {
 #
 # Search order and why:
 #   1. PATH -- a user who has Node installed gets it immediately.
-#   2. <install>\resources\... -- a packaged DSH may ship its own runtime
-#      next to the app (handled by Find-First below).
-#   3. %USERPROFILE%\.dsh\dsh-runtimes -- the CLI/web layout keeps a
-#      downloaded runtime here (Node 22+ satisfies package engines).
-#   4. Any node.exe found under common install roots, as a last resort.
+#   2. <install>\resources\runtime\primary-runtime\dependencies\node\bin\node.exe
+#      -- THIS is where the current desktop build ships Node
+#      (0.2.2-rc.5 / Electron 44). The old script only looked at
+#      <install>\node.exe and <install>\resources\node.exe, so on a machine
+#      without a system Node it printed "node.exe not found" and stopped --
+#      which looked exactly like "the patch did not apply".
+#   3. <install>\resources\app.asar.unpacked\... and .dsh\dsh-runtimes
+#      -- other layouts keep a downloaded runtime here.
+#   4. Common Node.js install roots, as a last resort.
 #
-# The old version only looked at PATH and %USERPROFILE%\.dsh\dsh-runtimes,
-# so on a fresh machine (a VM, or a DSH installed somewhere else) it printed
-# "node.exe not found." and stopped -- even though the archive was already
-# located. Report what was searched so the user can act instead of guessing.
+# ⚠ Do NOT use DeepSeek Harness.exe as node (ELECTRON_RUN_AS_NODE):
+#   the packaged harness sets DSH_* env vars and behaves differently as a
+#   plain Node, and spawning it while the app is installed is fragile on
+#   versions that refuse a second instance. A real node.exe is always
+#   present next to app.asar in the desktop layout.
 $nodeCmd = $Node
 if ($nodeCmd) {
   if (-not (Test-Path $nodeCmd)) {
@@ -168,24 +173,40 @@ if (-not $nodeCmd) {
 if ($nodeCmd -eq $null) {
   $candidates = @()
 
-  # (a) runtime shipped beside the DSH install
+  # (a) runtimes shipped inside the DSH install directory.
+  #     $asar is <install>\resources\app.asar, so <install> is two levels up.
   if ($asar) {
-    $roots = @( (Split-Path (Split-Path $asar -Parent) -Parent) )
-    foreach ($root in $roots) {
-      if ($root -and (Test-Path $root)) {
-        $candidates += (Join-Path $root 'node.exe')
-        $candidates += (Join-Path $root 'resources\node.exe')
+    $installDir = Split-Path (Split-Path $asar -Parent) -Parent
+    if ($installDir) {
+      foreach ($rel in @(
+        'resources\runtime\primary-runtime\dependencies\node\bin\node.exe'
+        'resources\runtime\bin\node.exe'
+        'runtime\primary-runtime\dependencies\node\bin\node.exe'
+        'node.exe'
+        'resources\node.exe'
+      )) {
+        $candidates += (Join-Path $installDir $rel)
+      }
+      # 兜底：在安装目录里搜一次（限制深度，避免扫到巨大目录）
+      if (Test-Path $installDir) {
+        $found = Get-ChildItem (Join-Path $installDir 'resources') -Recurse -Filter node.exe -ErrorAction SilentlyContinue |
+          Sort-Object FullName | Select-Object -First 1
+        if ($found -ne $null) { $candidates += $found.FullName }
       }
     }
   }
 
-  # (b) the DSH runtime cache
+  # (b) the DSH runtime caches (CLI/web layouts)
   $candidates += (Join-Path $env:USERPROFILE '.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe')
-  $runtime = Join-Path $env:USERPROFILE '.dsh\dsh-runtimes'
-  if (Test-Path $runtime) {
-    $found = Get-ChildItem $runtime -Recurse -Filter node.exe -ErrorAction SilentlyContinue |
-      Sort-Object FullName | Select-Object -First 1
-    if ($found -ne $null) { $candidates += $found.FullName }
+  foreach ($runtime in @(
+    (Join-Path $env:USERPROFILE '.dsh\dsh-runtimes'),
+    (Join-Path $env:USERPROFILE '.dsh\runtimes')
+  )) {
+    if (Test-Path $runtime) {
+      $found = Get-ChildItem $runtime -Recurse -Filter node.exe -ErrorAction SilentlyContinue |
+        Sort-Object FullName | Select-Object -First 1
+      if ($found -ne $null) { $candidates += $found.FullName }
+    }
   }
 
   # (c) common Node.js install locations
@@ -204,6 +225,7 @@ if ($nodeCmd -eq $null) {
   Write-Host '补丁工具 patch-asar.mjs 需要 Node.js 运行，但下面这些位置都没有找到:'
   Write-Host 'The patch tool runs on Node.js, and no copy was found in:'
   Write-Host '  - 系统 PATH'
+  Write-Host '  - DSH 安装目录下的 resources\runtime\primary-runtime\dependencies\node\bin\node.exe'
   Write-Host "  - $env:USERPROFILE\.dsh\dsh-runtimes   (DSH 运行时缓存)"
   Write-Host '  - C:\Program Files\nodejs 及 %LOCALAPPDATA%\Programs\nodejs'
   Write-Host ''
