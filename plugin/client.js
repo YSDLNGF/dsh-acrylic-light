@@ -422,34 +422,34 @@ const GLASS_STYLE = [
   '  --acrylic-sheen:255 255 255;',
   '}',
 
-  /* ══ 座位层：透明 + 一层磨砂，文字从它背后滚过 ═════════════════
-     DSH 新版把 seat 留在 scrollBody 里、`position:sticky; bottom:0`，
-     聊天内容从它背后滚过（旧版插件为了"裁切"把它搬走，代价是输入栏
-     无法聚焦 —— 已彻底停用，见 apply() 里的说明）。
+  /* ══ 输入栏：内容在它上沿硬裁（clip）══════════════════════════════
+     用户口径：要"原来插件一样的裁切" —— 聊天内容不许糊进输入栏，
+     滚到底要**硬断在输入栏上沿**，而不是从输入栏背后透出来。
 
-     既然文字本来就会经过输入栏下方，正好可以让 seat 自己承担磨砂：
-       · seat 是合成层（DSH 给了 will-change:transform），
-         backdrop-filter 能真实采样到它背后的聊天文字 —— 这才叫毛玻璃；
-       · 但 seat 铺满底部一整条（含左右留白），所以**颜色仍然只给卡片**，
-         seat 这层只做 blur + 极淡压暗，避免整条发灰。
+     真正能做到"硬裁"的只有一个物理事实：**滚动容器的底边必须止于
+     输入栏上沿**。seat 在 scrollBody 里时是 sticky 覆盖，内容照样从
+     它背后滚过 —— 那是"盖住"，不是"裁切"。
 
-     ⚠ 不能给 seat 铺不透明底：那会让亚克力被垫在一层灰上面，看起来发闷。 */
+     所以 apply() 里会把 seat 抬成 scrollBody 的兄弟（flex 自动把滚动区
+     压缩到 seat 上沿）。与上一版的区别只有一条，但它是致命的：
+     **只在挂载时抬一次，且不装 MutationObserver 反复回抬。**
+     上一版每 250ms 可能搬一次 DOM，而移动一个**正在聚焦的 contenteditable**
+     会让它立刻 blur —— 那就是"点一下亮一下马上暗掉、打不出字"的根因。
+     现在只搬一次，并且拒绝在焦点位于 seat 内时搬。 */
+
+  /* 座位层保持透明：它铺满底部一整条，有底色会把亚克力垫灰。 */
   'html[data-dsh-acrylic-light] [data-composer-seat],',
   'html[data-dsh-acrylic-light] [class*="an3WzG_composerSeat"]{',
-  /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base 0, bg-base 36px)
-     在透明主题里就是底部那条黑带，清掉它，改用自己的模糊层。 */
+  /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base, bg-base 36px)
+     在透明主题里就是底部那条黑带，清掉它。 */
   '  background:transparent!important;',
   '  background-image:none!important;',
-  '  backdrop-filter:blur(18px) saturate(130%)!important;',
-  '  -webkit-backdrop-filter:blur(18px) saturate(130%)!important;',
   '}',
-  /* hero（新会话）阶段 seat 在居中容器里、背后没有滚动内容，
-     模糊只会把壁纸再糊一次并让边缘发脏 —— 这阶段关掉。 */
-  'html[data-dsh-acrylic-light] [data-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-content-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-phase="settling"] [data-composer-seat]{',
-  '  backdrop-filter:none!important;',
-  '  -webkit-backdrop-filter:none!important;',
+  /* 抬出来之后 seat 不再是 sticky 覆盖，而是列尾的一块实体；
+     给它一点玻璃质感（不染色，只糊背后那点壁纸）。 */
+  'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
+  '  flex:none!important;',
   '}',
 
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
@@ -623,6 +623,42 @@ const GLASS_STYLE = [
   /* 遮罩层：原来 --dsw-mask-blur 是 none，补上模糊 */
   'html[data-dsh-acrylic-light] body{--dsw-mask-blur:none!important}',
 
+  /* ══ 插件页「已安装 / 发现」那一栏：粘住并在下沿硬裁 ══════════════
+     用户口径：插件界面向下滑动时，顶上的「已安装 / 发现」栏要像输入栏
+     一样——**内容不许从它背后透出来**，滚过去的内容在它下沿硬断。
+
+     结构（dsh-client-ui-settings-plugins / PluginsSettingsSection.tsx）：
+       设置面板 .AnXs9G_panel
+         └ .AnXs9G_options        ← 真正的滚动容器（overflow-y:auto）
+             └ .XAL7Ya_section    ← 插件页，含标题/说明/下面的 tabs
+                 └ .XAL7Ya_tabs   ← role=tablist，即「已安装 / 发现」
+
+     两件事：
+       ① 让 tabs **粘住**：不粘的话它跟着内容一起滚走，谈不上裁切。
+          粘在滚动容器顶部（top:0），父级之间不能有 overflow:hidden 中间层。
+       ② 给它一块**不透的底**并把下沿画实：粘住之后，滚动内容会从它
+          背后经过；只有底够实 + 下边界清晰，观感才是"硬裁"而不是"半透"。
+     ⚠ 底色用主题自己的雾面令牌，不写死颜色 —— 它必须与面板底一致，
+       否则会出现一条明显不同色的横带（那正是旧版"上面一条实心"的毛病）。 */
+  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]{',
+  '  position:sticky!important;',
+  '  top:0!important;',
+  '  z-index:2!important;',
+  /* 与面板同一块底，向左右各撑开 24px 盖住滚动容器的内边距，
+     这样滚动内容不会从两侧的 padding 缝隙里露出来。 */
+  '  margin-inline:-24px!important;',
+  '  padding-inline:24px!important;',
+  '  background:var(--acrylic-overlay-panel-dark)!important;',
+  '}',
+  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="XAL7Ya_tabs"]{',
+  '  background:var(--acrylic-overlay-panel-light)!important;',
+  '}',
+  /* 下沿那条分隔线原本是 tabs 自带 border-bottom（0.5px 实色）。
+     粘住后它正好成为"裁切边"，这里加一点投影把断口交代清楚。 */
+  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]{',
+  '  border-bottom-color:rgb(var(--acrylic-edge) / 14%)!important;',
+  '}',
+
   /* ── 设置面板 ───────────────────────────────────────────────
      ⚠ 只管设置面板自己的类名，**不要**写通用的 [class*="_panel"]：
        新版里每个包都有 *_panel（任务面板、插件面板…），一刀切会把
@@ -730,13 +766,28 @@ window.__ModuleLoader__.load({
          * 采样到它背后的内容。
          */
 
-        /* 保留查询函数：restoreSeat 与调试仍需要。 */
+        /* ══ 输入栏裁切：只搬一次，且绝不抢焦点 ═════════════════════════
+           目的（用户口径）：聊天内容要**硬断在输入栏上沿**，不许从输入栏
+           背后透出来。唯一能做到这件事的是让滚动容器的底边止于 seat 上沿 ——
+           seat 必须离开 scrollBody，成为它的 flex 兄弟。
+
+           ⚠ 上一版正是这里出的血：它为"裁切"装了 MutationObserver，
+             每 250ms 可能把 seat 搬进搬出一次。而**移动一个正在聚焦的
+             contenteditable 会让它立刻 blur** —— 用户看到"点一下边框亮起
+             （:focus-within）随即暗掉、一个字都打不进"。
+             新会话之所以正常，只是因为它当时在 hero 阶段、根本没搬。
+
+           所以现在三条硬约束：
+             1. **只搬一次**（每次 DOM 重建后才有第二次），不装 observer 反复回抬；
+             2. 焦点在 seat 内时坚决不搬 —— 宁可这一帧不裁切；
+             3. 只对 active 阶段搬，hero/settling 完全交还官方布局。 */
         const findBody = () => document.querySelector('[data-conversation-content]')
         const findSeat = () => document.querySelector('[data-composer-seat]')
         const findScroll = () => document.querySelector('[data-conversation-scroll]')
 
-        /* 阶段判断：官方靠 data-phase 切换输入栏位置（hero 居中 / active 贴底）。
-           只读不写，供调试与兜底。 */
+        /* 阶段判断：hero（新会话，输入栏居中）/ active（对话中，贴底）/ settling。
+           data-phase 在会话根 .root 上，不在 [data-conversation-content] 上；
+           embedded 变体才有 data-content-phase。 */
         const phaseOf = () => {
           const node = findBody()
           if (node && node.closest) {
@@ -752,16 +803,81 @@ window.__ModuleLoader__.load({
           return rootEl?.getAttribute('data-phase') ?? ''
         }
 
-        /* 卸载时把 seat 放回 scrollBody —— 只在**它真的被移出去过**时才动。
-           正常情况下它一直在原位，这里直接短路，不产生任何 DOM 操作。 */
-        const restoreSeat = () => {
-          const seat = findSeat()
-          const scroll = findScroll()
-          if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
+        /* 焦点是否在输入栏里 —— 这是"能不能搬"的否决条件，不是优化。 */
+        const focusInside = (seat) => {
+          const active = document.activeElement
+          return active !== null && active !== document.body && seat.contains(active)
         }
 
-        /* 不再搬移 DOM。保留同名空实现，让 paint() 的调用点保持简单。 */
-        const ensureLifted = () => {}
+        /* 把 seat 放回 scrollBody（官方默认位置）。 */
+        const lowerSeat = () => {
+          const seat = findSeat()
+          const scroll = findScroll()
+          if (!seat || !scroll) return false
+          if (seat.parentElement === scroll) return true
+          scroll.appendChild(seat)
+          return true
+        }
+
+        /* 抬到 scrollBody 之后，让 flex 压缩滚动区 —— 这才是"硬裁"。 */
+        const raiseSeat = () => {
+          const seat = findSeat()
+          const host = findBody()
+          const scroll = findScroll()
+          if (!seat || !host || !scroll) return false
+          if (seat.parentElement === host) return true   // 已在正确位置
+          if (focusInside(seat)) return false            // 正在打字，绝不动它
+          scroll.insertAdjacentElement('afterend', seat)
+          return true
+        }
+
+        /* 每次 DOM 重建（切页回来、换会话）后允许再搬一次。
+           用 MutationObserver 是必须的 —— 否则 React 重建后没人再搬，
+           裁切就永久消失。但回调里**只设一次标志**，不做高频 DOM 操作。 */
+        let seatPlanPending = false
+        let planTimer = null
+        const schedulePlan = () => {
+          if (seatPlanPending) return
+          seatPlanPending = true
+          if (planTimer !== null) window.clearTimeout(planTimer)
+          planTimer = window.setTimeout(() => {
+            planTimer = null
+            seatPlanPending = false
+            try {
+              if (current.enabled === false) return
+              if (phaseOf() === 'active') raiseSeat()
+            } catch { /* DOM 正在重建，下一轮再说 */ }
+          }, 120)
+        }
+
+        let planner = null
+        const startPlanner = () => {
+          if (planner) return
+          const target = document.body ?? document.documentElement
+          if (!target) return
+          planner = new MutationObserver(() => {
+            /* ⚠ 回调里只做一件事：排一次防抖。绝不在这里直接改 DOM ——
+               在 React commit 中途搬节点是最容易把界面搞崩的。 */
+            schedulePlan()
+          })
+          planner.observe(target, { childList: true, subtree: true })
+        }
+        const stopPlanner = () => {
+          if (planner) { planner.disconnect(); planner = null }
+          if (planTimer !== null) { window.clearTimeout(planTimer); planTimer = null }
+          seatPlanPending = false
+        }
+
+        /* 卸载/关闭主题时还原。 */
+        const restoreSeat = () => {
+          stopPlanner()
+          lowerSeat()
+        }
+
+        const ensureLifted = () => {
+          startPlanner()
+          schedulePlan()
+        }
 
         const paint = (state) => {
           current = { ...DEFAULTS, ...state }
