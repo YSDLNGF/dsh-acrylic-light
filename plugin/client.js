@@ -437,11 +437,38 @@ const GLASS_STYLE = [
   'html[data-dsh-acrylic-light] [data-composer-seat],',
   'html[data-dsh-acrylic-light] [class*="an3WzG_composerSeat"]{',
   /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base 0, bg-base 36px)
-     在透明主题里就是底部那条黑带，清掉它，改用自己的模糊层。 */
-  '  background:transparent!important;',
+     在透明主题里就是底部那条黑带，下面用自己的渐变整条接管，先清掉它。
+     ⚠ 不要保留 `background:transparent` —— 后面那条渐变已经包含"顶部全透明"
+       的停点，两条并存只会让维护者看不出哪条生效。 */
   '  background-image:none!important;',
-  '  backdrop-filter:blur(18px) saturate(130%)!important;',
-  '  -webkit-backdrop-filter:blur(18px) saturate(130%)!important;',
+  /* ══ 裁切：强模糊 + 上沿短淡出带（纯 CSS，不动 DOM）════════════════
+     目的：滚到输入栏附近的聊天文字要"消失"，而不是隔着玻璃透出来。
+
+     为什么不能照抄原版的 36px 渐变到面板色：
+       原版能裁，是因为它的 bg-base 是**不透明**的实色，渐变终点一盖就断。
+       本主题把面板透到 10%（让壁纸透上来），同一个渐变终点几乎透明 ——
+       文字会原样透出来，看着就像"没裁"。这就是上一版难看的根因。
+
+     所以改用「模糊到看不清」而不是「用颜色盖住」：
+       · blur(26px)：远大于正文笔画宽度，滚到这条带里的文字结构直接消失，
+         只剩柔和的色块 —— 观感是"被切断"，不再是"透出来"；
+       · 再叠一层 28px 的淡出带（transparent → 面板色），把断口收干净；
+       · 两者相加，底部既保留玻璃/壁纸的通透感，又看不到任何字。
+     ⚠ 模糊值别调小：14px 以下还能认出字形的轮廓，会显得脏。
+     ⚠ 不要改成不透明实底：那会把壁纸挡住，底部变成一条死板。 */
+  '  backdrop-filter:blur(26px) saturate(125%)!important;',
+  '  -webkit-backdrop-filter:blur(26px) saturate(125%)!important;',
+  '  background:linear-gradient(',
+  '    180deg,',
+  '    rgb(var(--acrylic-seat-base) / 0%) 0px,',
+  '    rgb(var(--acrylic-seat-base) / 62%) 28px,',
+  '    rgb(var(--acrylic-seat-base) / 62%) 100%',
+  '  )!important;',
+  '}',
+  /* 淡出带终点色：与三列/面板同源，避免出现一条不同色的横带。 */
+  'html[data-dsh-acrylic-light]{--acrylic-seat-base:16 18 23}',
+  'html[data-dsh-acrylic-light]:not(:has(body[data-ds-dark-theme])):not([data-ds-dark-theme]){',
+  '  --acrylic-seat-base:248 250 252;',
   '}',
   /* hero（新会话）阶段 seat 在居中容器里、背后没有滚动内容，
      模糊只会把壁纸再糊一次并让边缘发脏 —— 这阶段关掉。 */
@@ -450,6 +477,7 @@ const GLASS_STYLE = [
   'html[data-dsh-acrylic-light] [data-phase="settling"] [data-composer-seat]{',
   '  backdrop-filter:none!important;',
   '  -webkit-backdrop-filter:none!important;',
+  '  background:transparent!important;',
   '}',
 
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
@@ -622,6 +650,51 @@ const GLASS_STYLE = [
 
   /* 遮罩层：原来 --dsw-mask-blur 是 none，补上模糊 */
   'html[data-dsh-acrylic-light] body{--dsw-mask-blur:none!important}',
+
+  /* ══ 插件页「已安装 / 发现」栏：粘住 + 下沿硬裁 ══════════════════
+     用户口径：插件界面向下滑动时，顶上这一栏的**底部要裁切** ——
+     滚过去的内容到它下沿就断，不许透过去。
+
+     结构（dsh-client-ui-settings-plugins / PluginsSettingsSection.tsx）：
+       设置面板 .AnXs9G_panel
+         └ .AnXs9G_options        ← 真正的滚动容器（overflow-y:auto）
+             └ .XAL7Ya_section    ← 插件页
+                 └ .XAL7Ya_tabs   ← role=tablist，即「已安装 / 发现」
+
+     这一栏能**真裁**（不是糊掉），因为设置面板底本身有 78% 不透明度：
+       只要给 tab 栏铺与面板完全相同的底色，内容滚到它下沿就是硬断
+       —— 下方露出的仍是同一块面板底，看不出差别，等于被切掉了。
+     ⚠ 底色必须**与面板同源**（同一个 --acrylic-overlay-panel-dark），
+       不能写死颜色，否则会出现一条明显不同色的横带（旧版"上面一条实心"
+       就是这么来的）。
+
+     为什么要 sticky：不粘住它就跟内容一起滚走，"下沿"这个位置根本不存在。
+     横向用负 margin + padding 撑满，避免内容从滚动容器 padding 缝隙露出。 */
+  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]{',
+  '  position:sticky!important;',
+  '  top:0!important;',
+  '  z-index:2!important;',
+  '  margin-inline:-24px!important;',
+  '  padding-inline:24px!important;',
+  /* 与设置面板同一块底 = 真裁切。底部再压 6px 的同色投影，
+     让断口有一点点厚度，不至于像"纸被剪开"那么生硬。 */
+  '  background:var(--acrylic-overlay-panel-dark)!important;',
+  '  border-bottom:0!important;',
+  '  box-shadow:0 6px 0 0 var(--acrylic-overlay-panel-dark)!important;',
+  '}',
+  'html[data-dsh-acrylic-light] body:not([data-ds-dark-theme]) [class*="XAL7Ya_tabs"]{',
+  '  background:var(--acrylic-overlay-panel-light)!important;',
+  '  box-shadow:0 6px 0 0 var(--acrylic-overlay-panel-light)!important;',
+  '}',
+  /* 原来那条 0.5px 分隔线在实底上会变成一道多余的硬边，去掉。 */
+  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tabs"]{',
+  '  border-bottom:0!important;',
+  '}',
+  /* 栏内 tab 要压在新底色之上。 */
+  'html[data-dsh-acrylic-light] [class*="XAL7Ya_tab"]{',
+  '  position:relative!important;',
+  '  z-index:1!important;',
+  '}',
 
   /* ── 设置面板 ───────────────────────────────────────────────
      ⚠ 只管设置面板自己的类名，**不要**写通用的 [class*="_panel"]：
