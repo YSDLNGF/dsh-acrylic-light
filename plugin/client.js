@@ -437,48 +437,41 @@ const GLASS_STYLE = [
   'html[data-dsh-acrylic-light] [data-composer-seat],',
   'html[data-dsh-acrylic-light] [class*="an3WzG_composerSeat"]{',
   /* DSH 原生给 active 态铺的 linear-gradient(180deg, bg-base 0, bg-base 36px)
-     在透明主题里就是底部那条黑带，下面用自己的渐变整条接管，先清掉它。
-     ⚠ 不要保留 `background:transparent` —— 后面那条渐变已经包含"顶部全透明"
-       的停点，两条并存只会让维护者看不出哪条生效。 */
+     在透明主题里就是底部那条黑带。下面的硬裁方案不需要它，整条清掉。 */
+  '  background:transparent!important;',
   '  background-image:none!important;',
-  /* ══ 裁切：强模糊 + 上沿短淡出带（纯 CSS，不动 DOM）════════════════
-     目的：滚到输入栏附近的聊天文字要"消失"，而不是隔着玻璃透出来。
-
-     为什么不能照抄原版的 36px 渐变到面板色：
-       原版能裁，是因为它的 bg-base 是**不透明**的实色，渐变终点一盖就断。
-       本主题把面板透到 10%（让壁纸透上来），同一个渐变终点几乎透明 ——
-       文字会原样透出来，看着就像"没裁"。这就是上一版难看的根因。
-
-     所以改用「模糊到看不清」而不是「用颜色盖住」：
-       · blur(26px)：远大于正文笔画宽度，滚到这条带里的文字结构直接消失，
-         只剩柔和的色块 —— 观感是"被切断"，不再是"透出来"；
-       · 再叠一层 28px 的淡出带（transparent → 面板色），把断口收干净；
-       · 两者相加，底部既保留玻璃/壁纸的通透感，又看不到任何字。
-     ⚠ 模糊值别调小：14px 以下还能认出字形的轮廓，会显得脏。
-     ⚠ 不要改成不透明实底：那会把壁纸挡住，底部变成一条死板。 */
-  '  backdrop-filter:blur(26px) saturate(125%)!important;',
-  '  -webkit-backdrop-filter:blur(26px) saturate(125%)!important;',
-  '  background:linear-gradient(',
-  '    180deg,',
-  '    rgb(var(--acrylic-seat-base) / 0%) 0px,',
-  '    rgb(var(--acrylic-seat-base) / 62%) 28px,',
-  '    rgb(var(--acrylic-seat-base) / 62%) 100%',
-  '  )!important;',
-  '}',
-  /* 淡出带终点色：与三列/面板同源，避免出现一条不同色的横带。 */
-  'html[data-dsh-acrylic-light]{--acrylic-seat-base:16 18 23}',
-  'html[data-dsh-acrylic-light]:not(:has(body[data-ds-dark-theme])):not([data-ds-dark-theme]){',
-  '  --acrylic-seat-base:248 250 252;',
-  '}',
-  /* hero（新会话）阶段 seat 在居中容器里、背后没有滚动内容，
-     模糊只会把壁纸再糊一次并让边缘发脏 —— 这阶段关掉。 */
-  'html[data-dsh-acrylic-light] [data-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-content-phase="hero"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-phase="settling"] [data-composer-seat]{',
   '  backdrop-filter:none!important;',
   '  -webkit-backdrop-filter:none!important;',
-  '  background:transparent!important;',
   '}',
+  /* ══ 硬裁切：滚动区止于输入栏上沿 ═══════════════════════════════
+     用户口径：不要糊、不要黑底，要**真的切断** —— 聊天内容到输入栏上沿
+     就没了，绝不进入输入栏那一块。
+
+     唯一能做到这件事的物理事实：**滚动容器的底边必须止于 seat 上沿**。
+     seat 在 scrollBody 里时是 sticky 覆盖，内容照样从它背后滚过，那只是
+     "盖住"。所以 apply() 会把 seat 抬成 scrollBody 的兄弟：
+       body（flex column）里顺序是 scrollBody → seat，
+       两者都 flex:none，flex 自动把 scrollBody 压缩到 seat 上沿 ——
+       滚动容器在 seat 顶部截止，内容滚到底就硬断在那里。
+
+     ⚠ seat 必须 flex:none 才能参与这个压缩（DSH 原生已给 seat flex:none，
+       这里再写一次防止被别的规则改掉）。
+     ⚠ 抬出来的是 seat，不是卡片；seat 自身保持完全透明，
+       所以底部不会出现任何色块 —— 这正是用户要的"没有黑底"。
+     ⚠ 别给 seat 设 position:absolute：会脱离 flex 流，滚动区又铺满到底，
+       裁切立刻失效。 */
+  'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
+  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
+  '  flex:none!important;',
+  '  position:relative!important;',
+  '}',
+  /* 会话内容容器是 seat 的新父级，给它定位上下文，避免 seat 影响其它绝对定位元素。 */
+  'html[data-dsh-acrylic-light] [data-conversation-content]{',
+  '  position:relative!important;',
+  '}',
+  /* hero（新会话）阶段 seat 留在 scrollBody 内、由官方居中显示；
+     我们不搬它，所以这一阶段什么都不用覆盖 —— 上面的规则默认就是透明。 */
+
 
   /* ══ 布局：一律不改 ═══════════════════════════════════════════
      这里曾经加过负 margin，想把聊天内容「拉到输入框背后」，
@@ -825,16 +818,62 @@ window.__ModuleLoader__.load({
           return rootEl?.getAttribute('data-phase') ?? ''
         }
 
-        /* 卸载时把 seat 放回 scrollBody —— 只在**它真的被移出去过**时才动。
-           正常情况下它一直在原位，这里直接短路，不产生任何 DOM 操作。 */
+        /* ══ 硬裁切的 DOM 部分：把 seat 抬成 scrollBody 的兄弟 ═══════════
+           目的：让 scrollBody 的底边止于 seat 上沿，内容滚到底就硬断
+           （CSS 那条 flex:none 就是为这一步准备的）。
+
+           ⚠ 这是全项目最容易出事的一处，三条守卫都是血换来的：
+             1. **焦点在 seat 内时绝不搬。** 移动一个正在聚焦的
+                contenteditable 会让它立刻 blur —— 用户会看到"点一下边框
+                亮起随即暗掉、一个字都打不进"。宁可这一帧不裁，也不搬。
+             2. **只在 active 阶段搬。** hero（新会话）时 seat 由官方居中，
+                搬走会把布局拽坏。
+             3. **搬过一次就记住。** 不装高频 observer 反复回抬：
+                React 重挂时 seat 自然回到 scrollBody 内，我们下次 paint
+                再搬一次即可；宁可偶尔短暂不裁，也不要来回拉锯。
+           另外：搬之前先比对目标父级，已在正确位置就直接返回，不产生写入。 */
+        const focusInside = (seat) => {
+          const active = document.activeElement
+          return active !== null && active !== document.body && seat.contains(active)
+        }
+
+        const raiseSeat = () => {
+          const seat = findSeat()
+          const host = findBody()
+          const scroll = findScroll()
+          if (!seat || !host || !scroll) return false
+          if (seat.parentElement === host) return true   // 已经抬过
+          if (focusInside(seat)) return false            // 正在打字，绝不动它
+          scroll.insertAdjacentElement('afterend', seat)
+          return true
+        }
+
+        let liftTimer = null
+        /* 防抖 + 只排一次：paint 可能连续触发多次，合并成一次搬移。 */
+        const scheduleLift = () => {
+          if (liftTimer !== null) return
+          liftTimer = window.setTimeout(() => {
+            liftTimer = null
+            try {
+              if (current.enabled === false) return
+              if (phaseOf() === 'active') raiseSeat()
+            } catch {
+              // DOM 正在重建，下一次 paint 再试；这里绝不能让异常冒泡
+            }
+          }, 120)
+        }
+
+        /* 卸载/关闭主题时把 seat 放回 scrollBody —— 只在它真被移出去过时才动。 */
         const restoreSeat = () => {
+          if (liftTimer !== null) { window.clearTimeout(liftTimer); liftTimer = null }
           const seat = findSeat()
           const scroll = findScroll()
           if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
         }
 
-        /* 不再搬移 DOM。保留同名空实现，让 paint() 的调用点保持简单。 */
-        const ensureLifted = () => {}
+        const ensureLifted = () => {
+          scheduleLift()
+        }
 
         const paint = (state) => {
           current = { ...DEFAULTS, ...state }
