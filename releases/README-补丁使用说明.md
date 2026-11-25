@@ -106,9 +106,24 @@ powershell -ExecutionPolicy Bypass -File apply-when-closed.ps1 -Asar "D:\你的�
 | `restore-asar.ps1` | 还原（撤销补丁） |
 | `diagnose.cmd` / `diagnose.ps1` | 透明效果诊断 |
 
-关于 Node：脚本会依次查找系统 PATH、**DSH 自带运行时**
+## 关于 Node（重要）
+
+> **旧版插件补丁需要 node 文件，而旧版 dsh 内部没有 node，需要另外下载。
+> 新版本的不用下载，dsh 内部就有。**
+
+| 组合 | 是否需要自己装 Node |
+| --- | --- |
+| 旧版补丁 + 旧版 dsh | **需要** —— dsh 不带 node，去 [nodejs.org](https://nodejs.org) 下载 |
+| 新版补丁 + 新版 dsh | **不需要** —— dsh 自带 node |
+
+新版脚本会依次查找系统 PATH、**DSH 自带运行时**
 （`resources\runtime\primary-runtime\dependencies\node\bin\node.exe`）、
-以及 `~/.dsh\dsh-runtimes`。新版桌面版自带 Node，通常**不需要自己装**。
+以及 `~/.dsh\dsh-runtimes`。
+
+实测：即使系统 PATH 里没有 node、也从没装过 Node.js，新版补丁照样能打上。
+
+⚠ 只有当脚本明确打印「找不到 node.exe」时，才需要自己装 Node.js ——
+说明你的 Harness 版本不带运行时。
 
 ---
 

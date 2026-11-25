@@ -623,6 +623,56 @@ const GLASS_STYLE = [
   '  background:var(--acrylic-overlay-panel-light)!important;',
   '}',
 
+  /* ══ 插件页顶部「已安装 / 发现 / 刷新 / 添加插件」栏：真裁切 ═════════
+     用户口径（说得很准）："要裁切，不是黑色遮挡，像输入栏一样"。
+
+     ⚠ 先分清两件事，这是前面反复失败的根源：
+       · 遮挡 = 给这一栏铺实色底，让滚过去的内容被盖住。
+                但那块底色本身就变成一条黑带，而且内容仍在栏背后滚动，
+                只是看不见 —— 用户在视觉上会认为"多了一块黑"。
+       · 裁切 = 让滚动容器**顶边止于这一栏的下沿**。内容根本到不了
+                栏背后，滚到边界就消失。这才是输入栏的效果。
+
+     结构（PluginManagerPage.tsx，实测）：
+         section.page          display:flex; flex-direction:column; height:100%
+           ├ div.pageBody      flex:1; overflow-y:auto   ← 滚动容器
+           │    └ div.pageBar  sticky; top:0             ← 这一栏（在滚动流里！）
+           │         ├ .pageHead（标题+工具栏）
+           │         └ .pageTabs（已安装/发现）
+           └ (其它)
+
+     ⚠ 栏在滚动容器**内部**，所以只能 sticky 吸顶 → 顶多做到遮挡。
+       要做真裁切，必须把 .pageBar 搬到 .page 下、成为 .pageBody 的**兄弟**：
+         section.page
+           ├ div.pageBar      ← 搬到这里，flex:none，固定在顶部
+           └ div.pageBody     ← 被 flex 压缩到栏下沿，内容到这里就断
+       与输入栏那次（把 composerSeat 抬出 scrollBody）是同一个手法。
+
+     ⚠ 代价（必须说清楚）：官方的 header-scroll.ts 用
+         const body = bar.parentElement
+       来取滚动容器；栏一旦搬家，body 变成 .page（不滚动），
+       scrollTop 恒为 0，于是"滚动时栏收缩"的动画不再触发 —— 栏永远是
+       展开态 130px。这个动画是装饰性的，换来的是真裁切，值得。
+       也正因为不收缩，裁切线位置稳定，观感更干净。
+
+     CSS 这边只做两件事：把栏变成固定在顶部的一条，并给回它 self 的定位。
+     ⚠ 不再给任何"实色底"—— 裁切不需要底色，底色只会变成黑带。 */
+  'html[data-dsh-acrylic-light] [class*="_page"] > [data-plugin-bar]{',
+  '  flex:none!important;',
+  '  position:relative!important;',
+  '  top:auto!important;',
+  '  z-index:3!important;',
+  '  align-self:center!important;',
+  '}',
+  /* 搬出来的栏失去 .pageBody 给的负 margin 撑满，这里按 .page 的变量补回来，
+     让它与下方内容左右对齐。 */
+  'html[data-dsh-acrylic-light] [class*="_page"] > [data-plugin-bar]{',
+  '  width:100%!important;',
+  '  max-width:960px!important;',
+  '  margin-inline:0!important;',
+  '  padding-inline:0!important;',
+  '}',
+
   /* ── 通用对话框（确认框、命令面板等）────────────────────────── */
   'html[data-dsh-acrylic-light] [class*="_dialog"]{',
   '  background:var(--acrylic-overlay-panel-dark)!important;',
@@ -777,11 +827,87 @@ window.__ModuleLoader__.load({
           return true
         }
 
+        let liftTimer = null
+
+        /* ══ 用户在输入栏里"真的在打字"吗？═══════════════════════════════
+           ⚠ 这一版的痛点是"切页面回来没有裁切"，根因就在这个判断上。
+
+           旧实现（下面被替换掉的）是：
+               return seat.contains(document.activeElement)
+           也就是**只要焦点在输入栏里就算在打字**。
+
+           问题在于 DSH 切回会话时会**自动把焦点给输入栏**（用户没碰它）。
+           于是切回来的第一次调度就被这里拦掉：
+               scheduleLift → typingInComposer() === true → 直接 return
+           连定时器都不排。之后 retryLift 的五次退避也全部同一个理由放弃。
+           结果：裁切永久停在"没搬"，直到用户去点一下别处让焦点离开，
+           下一次触发放行，裁切才回来 —— 与用户观察完全一致。
+
+           ⚠ 新的判据：不看"焦点在不在"，看**用户是否真的做了输入动作**：
+             · 键入了内容（keydown / beforeinput / paste），或
+             · 用户自己点进了输入栏（pointerdown 落在 seat 内）
+           这两个才是"我要打字"的证据。DSH 自动聚焦不算 ——
+           那样切回会话时就能照常搬移，裁切恢复。
+
+           为什么用时间窗而不是布尔：用户停下来之后要能恢复裁切，
+           所以"最近 1.2 秒内有输入动作"才算在打字，超时自动放行。
+
+           ⚠ 全程不调用 focus()、不模拟点击 —— 只读事件，不干预焦点。 */
+        const INPUT_INTENT_MS = 1200
+        let lastInputIntentAt = 0
+        const noteInputIntent = () => { lastInputIntentAt = Date.now() }
+
+        const bindInputIntentWatch = () => {
+          if (bindInputIntentWatch.done) return
+          bindInputIntentWatch.done = true
+          /* 捕获阶段，兼容任何输入框（会话输入栏、其它编辑器）。 */
+          document.addEventListener('keydown', noteInputIntent, true)
+          document.addEventListener('beforeinput', noteInputIntent, true)
+          document.addEventListener('paste', noteInputIntent, true)
+          /* 点击才代表"用户想在这里输入"。用 pointerdown 而不是 click：
+             click 在编辑器内部可能被吞掉，pointerdown 一定先到。 */
+          document.addEventListener('pointerdown', (event) => {
+            const seat = findSeat()
+            if (seat && event.target instanceof Node && seat.contains(event.target)) {
+              noteInputIntent()
+            }
+          }, true)
+        }
+
+        const typingInComposer = () => {
+          const seat = findSeat()
+          if (!seat) return false
+          const active = document.activeElement
+          /* 焦点必须仍在输入栏内 —— 这条保留：焦点已经离开时，
+             搬不移都不影响用户输入，没必要再拦。 */
+          if (active === null || active === document.body || !seat.contains(active)) return false
+          /* 焦点在栏内，但只有"最近真的有输入动作"才算在打字。 */
+          bindInputIntentWatch()
+          return Date.now() - lastInputIntentAt < INPUT_INTENT_MS
+        }
+
+        const scheduleLift = () => {
+          if (liftTimer !== null) return
+          if (typingInComposer()) return
+          liftTimer = window.setTimeout(() => {
+            liftTimer = null
+            /* 定时器排上之后、真正执行之前，焦点可能刚好移进输入栏 ——
+               所以到点这里要再判一次，不能只依赖入队时的检查。 */
+            if (typingInComposer()) return
+            let ok = false
+            try { ok = liftSeat() } catch {}
+            if (ok !== true) retryLift()
+          }, 250)
+        }
+
         const liftSeat = () => {
           const seat = findSeat()
           const host = findBody()
           const scroll = findScroll()
           if (!seat || !host || !scroll || scroll === seat) return false
+
+          /* 已经抬好就直接返回：这一步不写 DOM，反复调用完全无感。 */
+          if (seat.parentElement === host) return true
 
           /* hero / settling / 空值一律交还官方布局。
              空值按 hero 处理更安全：新会话刚创建的那一帧属性可能还没写，
@@ -792,20 +918,59 @@ window.__ModuleLoader__.load({
             return false
           }
 
-          if (seat.parentElement === host) return true // 已在正确位置
+          /* ⚠ 只有"用户真的在打字"才跳过搬移。
+             判据见 typingInComposer 的说明 —— 不再用"焦点在不在"，
+             否则 DSH 切回会话自动聚焦时会被永久拦住、裁切回不来。
+             跳过时**不还原焦点、不模拟点击**，只是这一帧不搬。 */
+          if (typingInComposer()) return false
+
           // 插到 scrollBody 之后（WidthControls 之前）：flex 顺序 scroll→seat→…
           // 让 body 的 flex 布局把 scrollBody 压缩到 seat 上沿（真正产生硬裁）。
           scroll.insertAdjacentElement('afterend', seat)
           return true
         }
 
-        let liftTimer = null
-        const scheduleLift = () => {
+
+        /* ── 搬不动就重试（修"切页面回来裁切消失"）─────────────────────
+           稳定复现路径：进「插件」页 → 回会话 → 没有裁切 → 点一下输入栏
+           裁切才回来。
+
+           原因：React 切回会话时会把整棵子树重建，那一帧 data-phase 还是
+           'settling'（官方注释：settling 是过渡期、composerSeat 先
+           visibility:hidden），liftSeat 于是走 lowerSeat 分支并返回 false。
+           等 phase 落成 'active' 时，**没有任何新的 DOM 变动**再来触发一次
+           ——observer 只在子树增删时回调，而这时树已经稳定了。
+           所以裁切永久停在"没搬"的状态，直到用户点一下输入栏
+           （光标闪烁产生变动）才被 observer 顺带救回来。
+
+           修法：搬失败就自己排下一次，直到成功、或条件明确不允许。
+           为什么用递增退避而不是固定 250ms 死循环：
+             settling → active 通常几十到几百毫秒，前几次快问、后几次放慢，
+             既能在常见情况下立刻补上，也不会在异常情况下空转烧 CPU。
+           ⚠ 上限 MAX_RETRIES 次后放弃：那是真的搬不动（比如根本没有
+             active 会话），继续排只会变成后台空转。 */
+        const LIFT_RETRY_DELAYS = [80, 160, 320, 640, 1200]
+        const retryLift = () => {
+          const attempt = (retryLift.count ?? 0)
+          if (attempt >= LIFT_RETRY_DELAYS.length) {
+            retryLift.count = 0
+            return
+          }
+          retryLift.count = attempt + 1
+          /* ⚠ 重试链自己也占住 liftTimer：否则 scheduleLift 会在同一时间
+             再排一个，两条链各搬一次 —— 一次搬成功、另一次发现"已在
+             正确位置"还好，但若两次都判定失败就会互相打断，
+             重试次数被浪费，看起来就是"时有时无"。 */
           if (liftTimer !== null) return
           liftTimer = window.setTimeout(() => {
             liftTimer = null
-            try { liftSeat() } catch {}
-          }, 250)
+            if (current.enabled === false) { retryLift.count = 0; return }
+            if (typingInComposer()) { retryLift.count = 0; return }
+            let ok = false
+            try { ok = liftSeat() } catch {}
+            if (ok === true) { retryLift.count = 0; return }
+            retryLift()
+          }, LIFT_RETRY_DELAYS[attempt])
         }
 
         /* ── 为什么 observer 观察 document.body 而不是 scrollBody ────────
@@ -825,11 +990,53 @@ window.__ModuleLoader__.load({
            定时器到点才真正查 DOM。开销可忽略。 */
         const startObserver = () => {
           if (observer) return
-          observer = new MutationObserver(() => scheduleLift())
+          observer = new MutationObserver(() => { scheduleLift(); schedulePageBar() })
           // body 一定存在（插件在渲染层加载时已挂载），退化情况用 documentElement
           const target = document.body ?? document.documentElement
           if (!target) return
           observer.observe(target, { childList: true, subtree: true })
+
+          /* 焦点离开输入栏后补一次裁切。
+             ⚠ 为什么必须有这一条：上面所有入口在"正在打字"时都会直接
+                return，如果没人补，用户打完字把焦点移走之后裁切就永久
+                停在"没搬"的状态，直到下一次 DOM 变动才可能恢复。
+             用 focusout 冒泡阶段监听一次即可，开销可忽略。 */
+          if (!startObserver.watchingFocus) {
+            startObserver.watchingFocus = true
+            const nudge = () => {
+              retryLift.count = 0
+              scheduleLift()
+              /* 插件页的栏也一起补一次：切到插件页时 React 会重建 DOM，
+                 栏回到滚动容器内部，必须重新抬出去才能维持裁切。 */
+              schedulePageBar()
+            }
+            document.addEventListener('focusout', (event) => {
+              const seat = findSeat()
+              const next = event.relatedTarget
+              // 焦点仍在 seat 内（比如从一个按钮跳到编辑器）就当作还在打字
+              if (seat && next instanceof Node && seat.contains(next)) return
+              nudge()
+            }, true)
+
+            /* ── 切页面回来也要补一次（本次修的重点）──────────────────
+               用户报的稳定复现："进插件页 → 回会话 → 没有裁切"。
+
+               ⚠ React 回到会话时多数情况会**复用**原子树而不是重建，
+                 于是 MutationObserver 收不到任何 childList 变动 ——
+                 光靠观察 DOM 根本覆盖不到这条路径。
+               所以必须自己补触发信号，四个都挂（都很便宜，先到先得）：
+                 · visibilitychange —— 窗口从后台回来
+                 · focus            —— 窗口重新获得焦点
+                 · popstate/hashchange —— 路由切面板（DSH 用地址驱动）
+                 · pointerdown      —— 点击侧栏/面板再回来，这类没有路由变化
+               pointerdown 只做"排一次"，不直接搬：如果用户点的正是输入栏，
+               scheduleLift 里的 typingInComposer() 会把它挡掉。 */
+            document.addEventListener('visibilitychange', nudge, true)
+            window.addEventListener('focus', nudge, true)
+            window.addEventListener('popstate', nudge, true)
+            window.addEventListener('hashchange', nudge, true)
+            document.addEventListener('pointerdown', nudge, true)
+          }
         }
 
         const stopObserver = () => {
@@ -838,11 +1045,64 @@ window.__ModuleLoader__.load({
           if (ensureLifted && ensureLifted.cancelBoot) ensureLifted.cancelBoot()
         }
 
+        /* ══ 插件页：把顶部栏抬成滚动容器的兄弟 → 真裁切 ═════════════════
+           与输入栏那次完全同一个手法：把「本该固定在顶部的条」从滚动容器
+           里抬出去，让 flex 把滚动容器压缩到它的下沿。
+
+           结构对照（搬家前 / 搬家后）：
+             section.page[data-plugin-panel]        section.page[data-plugin-panel]
+               └ div.pageBody (overflow:auto)          ├ div.pageBar  ← 抬到这里
+                    └ div.pageBar (sticky)             └ div.pageBody ← 被压缩，内容到栏下沿就断
+
+           ⚠ 为什么必须反对"遮挡"方案：
+             给栏铺实色底只是盖住内容，栏背后那一条仍然在滚，观感上就是
+             "多了一块黑带"。用户明确否掉了这个（"不是黑色遮挡"）。
+             真裁切是物理上让内容到不了那里。
+
+           ⚠ 守卫（沿用输入栏的经验）：
+             · 已经搬过就直接返回，零 DOM 写入；
+             · 只在 .pageBar 确实是 .pageBody 的直接子元素时才搬，
+               结构变了（DSH 升级）就什么都不做，绝不乱动；
+             · 不碰焦点：这里搬的是页面栏，不涉及可编辑区域。 */
+        const findPagePanel = () => document.querySelector('[data-plugin-panel]')
+        const findPageBar = () => document.querySelector('[data-plugin-bar]')
+
+        const raisePageBar = () => {
+          const bar = findPageBar()
+          if (!bar) return false
+          const body = bar.parentElement
+          // 已经搬好（父级不再是滚动容器）
+          if (!body || body.getAttribute('data-plugin-body') === null) return true
+          const page = body.parentElement
+          if (!page) return false
+          // 把栏插到滚动容器**前面**：flex 顺序 bar → body
+          page.insertBefore(bar, body)
+          return true
+        }
+
+        let pageBarTimer = null
+        const schedulePageBar = () => {
+          if (pageBarTimer !== null) return
+          pageBarTimer = window.setTimeout(() => {
+            pageBarTimer = null
+            try { raisePageBar() } catch {}
+          }, 200)
+        }
+
         const restoreSeat = () => {
           stopObserver()
           const seat = findSeat()
           const scroll = findScroll()
           if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
+          // 插件页栏搬回原位（放回滚动容器内，恢复官方结构）
+          const bar = findPageBar()
+          if (bar) {
+            const page = bar.parentElement
+            const body = page && page.querySelector('[data-plugin-body]')
+            if (page && body && body.getAttribute('data-plugin-body') !== null) {
+              body.insertBefore(bar, body.firstChild)
+            }
+          }
         }
 
         const ensureLifted = () => {
@@ -863,7 +1123,10 @@ window.__ModuleLoader__.load({
             let bootTimer = null
             const boot = () => {
               bootTimer = null
-              try { liftSeat() } catch {}
+              /* ⚠ 走 scheduleLift 而不是直接 liftSeat：
+                 直接调会绕过焦点守卫 —— 开机 900ms 后用户可能已经在
+                 输入框里打字，那一搬就把焦点抢走了。 */
+              scheduleLift()
               startObserver()
             }
             bootTimer = window.setTimeout(boot, 900)

@@ -74,21 +74,42 @@
 三、注意事项（务必先看）
 ------------------------------------------------------------
 
-1) 补丁没重启、进度卡住 → 先看 node 提示
+1) 关于 Node：新版什么都不用装，旧版需要
 
-   新版桌面版 Harness **自带 Node 运行时**，补丁脚本会自动到
-   安装目录下的 resources\runtime\primary-runtime\dependencies\node\bin\node.exe
-   去找，通常不需要自己装 Node。
+   ┌──────────────────────────────────────────────────────────┐
+   │ 一句话：旧版插件补丁需要 node 文件，                     │
+   │ 而旧版 dsh 内部没有 node，必须另外下载；                 │
+   │ 新版插件补丁不用下载，dsh 内部就有。                     │
+   └──────────────────────────────────────────────────────────┘
 
-   只有当脚本明确打印"找不到 node.exe"时，才需要安装：
-   下载地址: https://nodejs.org
+   对照表：
 
-   安装说明：
-     - 打开 https://nodejs.org，点击「获取 Node.js」
-     - 进入新页面后点击「Windows 安装程序」
-     - 下载完成后依次安装（一路默认下一步即可）
-     - 安装成功后，退出 PowerShell（终端）页面
-     - 重新双击加载补丁程序，等待 Harness 重启
+     旧版补丁 + 旧版 dsh → dsh 不带 node，必须自己装 Node.js
+     新版补丁 + 新版 dsh → dsh 自带 node，什么都不用装
+
+   为什么旧版 dsh 不行：它的运行时里没有 node，所以旧补丁脚本
+   找不到解释器，只能提示你去 https://nodejs.org 下载安装。
+
+   新版桌面版 Harness 自带 Node 运行时，随安装包一起发布
+   （官方 runtime 清单里明确记录了 node 版本）。补丁脚本会自动找到它：
+
+     <安装目录>\resources\runtime\primary-runtime\dependencies\node\bin\node.exe
+
+   实测：即使系统 PATH 里没有 node、也从没装过 Node.js，
+   补丁照样能正常打上 —— 因为用的是 Harness 自带的那个。
+
+   ⚠ 只有一种情况才需要自己装：脚本明确打印「找不到 node.exe」。
+     这说明你的 Harness 版本不带运行时，此时才需要：
+
+       下载地址: https://nodejs.org
+       - 打开页面，点击「获取 Node.js」
+       - 进入新页面后点击「Windows 安装程序」
+       - 下载完成后依次安装（一路默认下一步即可）
+       - 装完退出 PowerShell（终端）窗口
+       - 重新双击补丁程序，等待 Harness 重启
+
+   看到「找不到 node.exe」时，也可以直接把下面这个路径发给开发者确认：
+     <安装目录>\resources\runtime\primary-runtime\dependencies\node\bin\node.exe
 
 2) 补丁装完后仍然没有透明效果 → 双击 diagnose.cmd
 
