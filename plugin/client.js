@@ -497,6 +497,13 @@ const GLASS_STYLE = [
   '  border:0!important;',
   '  box-shadow:none!important;',
   '  position:relative;',
+  /* ⚠ 基础态也必须显式关掉过渡。
+     只在 :focus-within 里写 transition:none 是不够的 ——
+     那样只覆盖"进入聚焦"那一刻；**离开聚焦**时浏览器会回退到基础规则的
+     过渡值（官方 .optionRow / .card 自己带 120ms~220ms 的 transition），
+     于是失焦瞬间又跑一遍动画，照样闪。
+     两处都钉成 none，进出都无动画。 */
+  '  transition:none!important;',
   '}',
   /* ── 输入栏 ::after：已移除 ─────────────────────────────────
      这里原本是唯一的模糊层（backdrop-filter: blur），用来糊背后的聊天内容。
@@ -519,6 +526,18 @@ const GLASS_STYLE = [
   '}',
   /* 聚焦：描边亮一档 + 一圈极淡外环。
      ⚠ 阴影层数与静置态保持一致，浏览器才能逐层插值，环是"渐显"而不是跳出。 */
+  /* 聚焦：描边亮一档 + 一圈极淡外环。
+     ⚠ 这里**刻意不加 transition**（原来有 box-shadow / border-color 各 220ms）。
+       原因（实测）：这条过渡是输入栏内一切 hover 白框频闪的元凶 ——
+         · 问题卡片、发送按钮被悬停/点击时，它们获得焦点 → 卡片进入
+           :focus-within → 220ms 过渡启动；
+         · 过渡内容是 **5 层 box-shadow**，其中 3 层是 inset、精度到 0.5px，
+           每帧都要重新模糊/合成整张阴影；
+         · 本主题背景高度透明，阴影重绘会让卡片边界在相邻帧之间"跳"，
+           进而扰动 hover 命中判定 → 过渡被反复打断重启 → 肉眼看到闪烁；
+         · 焦点稳定后过渡自然结束，所以"点一下就不闪了" —— 与用户观察一致。
+       去掉 transition 后状态瞬间切换，不产生中间帧，也就没有可被打断的动画。
+       代价只是少了 220ms 的柔和渐显，换来输入栏区域完全稳定。 */
   'html[data-dsh-acrylic-light] [data-composer-card]:focus-within{',
   '  border-color:rgb(var(--acrylic-edge) / 30%)!important;',
   '  box-shadow:',
@@ -527,7 +546,7 @@ const GLASS_STYLE = [
   '    inset 0 0 0 .5px rgb(var(--acrylic-sheen) / 8%),',
   '    0 12px 36px -10px rgb(0 0 0 / 40%),',
   '    0 0 0 3px rgb(120 150 255 / 12%)!important;',
-  '  transition:box-shadow 220ms cubic-bezier(.22,1,.36,1),border-color 220ms cubic-bezier(.22,1,.36,1);',
+  '  transition:none!important;',
   '}',
   /* ── 上缘高光条已并入 box-shadow 的 inset 层 ──────────────────
      原来这里用 ::before 画一条 1px 亮线，现在 ::before 让给了
@@ -671,6 +690,82 @@ const GLASS_STYLE = [
   '  max-width:960px!important;',
   '  margin-inline:0!important;',
   '  padding-inline:0!important;',
+  '}',
+
+  /* ── 输入栏内所有控件的过渡：一律关掉 ─────────────────────────────
+     现象（用户逐步缩小后确认）：**只有发送按钮和问题输入框在闪**，
+     普通选项正常。
+
+     这两个控件的共同点，正是闪烁的原因：
+       发送按钮 .primary {
+         transition: background-color .1s;
+         transform: translateY(-2px);          ← 亚像素位移
+       }
+       问题输入行 .customRow {
+         transition: background-color 120ms, border-color 120ms;
+       }
+     两者的背景都是**半透明**（button-info-fill / interactive-bg-hover）。
+     半透明色在过渡中被逐帧插值，每帧都要重新合成；再叠上 translateY(-2px)
+     这种非整数偏移，边缘会在相邻帧之间落到不同的设备像素上 ——
+     本主题整页透明、没有不透明底衬，这种抖动就没有任何东西可以掩盖。
+
+     为什么普通选项不闪：它没有 transform 偏移，且它自己的 .optionRow
+     过渡已经被上面那条规则关掉了。
+
+     修法：把这几个控件的 transition 全部钉成 none。
+       状态（静置/hover/聚焦）之间**瞬间切换**，不产生中间帧，
+       也就没有可被打断、可被逐帧插值的动画。
+       代价只是少了 0.1~0.12 秒的渐变，换来输入栏区域完全稳定。 */
+  'html[data-dsh-acrylic-light] [class*="_primary"]{',
+  '  transition:none!important;',
+  '}',
+  'html[data-dsh-acrylic-light] [class*="_customRow"]{',
+  '  transition:none!important;',
+  '}',
+  /* 问题卡片里的勾选框（::before 也有 120ms 过渡）。 */
+  'html[data-dsh-acrylic-light] [class*="_checkbox"]::before{',
+  '  transition:none!important;',
+  '}',
+  /* 兜底：输入栏区域（卡片及其内部）任何过渡都停掉。
+     ⚠ 只圈 data-composer-card 内部 —— 不要把全局 transition 一刀切，
+       那会影响别的页面（例如插件页栏的搬移判定）。 */
+  'html[data-dsh-acrylic-light] [data-composer-card] *{',
+  '  transition:none!important;',
+  '}',
+
+  /* ── 问题卡片选项行：消除悬停时的白框频闪 ──────────────────────
+     现象：鼠标停在"回答问题"的选项行上，白色边框高频闪烁；
+           **但点一下之后就不闪了**。
+
+     ⚠ "点击后不闪"这条线索很关键 —— 它说明问题不在边框本身，
+       而在**过渡动画被反复打断**：
+         .optionRow {
+           border: 0.5px solid transparent;
+           transition: background-color 120ms ease, border-color 120ms ease;
+         }
+       ① 0.5px 边框落在非整数物理像素上，Chromium 每帧都要重新舍入
+          到设备像素，边缘在"亮/暗"之间跳；
+       ② transition 里带 border-color，但 hover 只改背景色、不改边框色，
+          过渡引擎仍每帧重算边框 → 把①的抖动放大成肉眼可见的闪烁；
+       ③ 点击后元素进入 selected 态，背景与边框都变成终值、过渡自然结束，
+          所以不再闪 —— 与用户观察完全一致。
+
+     修法（两步都要，缺一仍会闪）：
+       · 边框对齐到整数像素：0.5px → 1px。1px 落在设备像素边界上，
+         不再有舍入抖动。`.card *{box-sizing:border-box}`，
+         所以改边框宽度不会改变元素尺寸，不会引入布局抖动。
+       · **彻底去掉过渡**：transition:none。hover 瞬间切换背景色，
+         不产生任何中间帧 —— 没有动画就没有可被打断的动画。
+         代价是 hover 少了 120ms 的柔和渐变，换来绝对稳定，
+         对"选一个选项"这种高频操作反而更干脆。 */
+  'html[data-dsh-acrylic-light] [class*="_optionRow"]{',
+  '  border-width:1px!important;',
+  '  transition:none!important;',
+  '}',
+  /* 选中态同样对齐，避免"选中→取消"时边框宽度突变。 */
+  'html[data-dsh-acrylic-light] [class*="_optionSelected"]{',
+  '  border-width:1px!important;',
+  '  transition:none!important;',
   '}',
 
   /* ── 通用对话框（确认框、命令面板等）────────────────────────── */
