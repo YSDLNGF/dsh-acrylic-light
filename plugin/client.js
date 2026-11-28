@@ -451,9 +451,6 @@ const GLASS_STYLE = [
      .composerHero{align-self:center} 居中显示；若不分阶段一律 flex:none，
      会干扰它在居中容器里的表现。 */
   'html[data-dsh-acrylic-light] [data-phase="active"] [data-composer-seat],',
-  'html[data-dsh-acrylic-light] [data-content-phase="active"] [data-composer-seat]{',
-  '  flex:none!important;',
-  '}',
   'html[data-dsh-acrylic-light] [data-conversation-content]{',
   '  position:relative!important;',
   '}',
@@ -668,55 +665,6 @@ const GLASS_STYLE = [
   '  background:var(--acrylic-overlay-panel-light)!important;',
   '}',
 
-  /* ══ 插件页顶部「已安装 / 发现 / 刷新 / 添加插件」栏：真裁切 ═════════
-     用户口径（说得很准）："要裁切，不是黑色遮挡，像输入栏一样"。
-
-     ⚠ 先分清两件事，这是前面反复失败的根源：
-       · 遮挡 = 给这一栏铺实色底，让滚过去的内容被盖住。
-                但那块底色本身就变成一条黑带，而且内容仍在栏背后滚动，
-                只是看不见 —— 用户在视觉上会认为"多了一块黑"。
-       · 裁切 = 让滚动容器**顶边止于这一栏的下沿**。内容根本到不了
-                栏背后，滚到边界就消失。这才是输入栏的效果。
-
-     结构（PluginManagerPage.tsx，实测）：
-         section.page          display:flex; flex-direction:column; height:100%
-           ├ div.pageBody      flex:1; overflow-y:auto   ← 滚动容器
-           │    └ div.pageBar  sticky; top:0             ← 这一栏（在滚动流里！）
-           │         ├ .pageHead（标题+工具栏）
-           │         └ .pageTabs（已安装/发现）
-           └ (其它)
-
-     ⚠ 栏在滚动容器**内部**，所以只能 sticky 吸顶 → 顶多做到遮挡。
-       要做真裁切，必须把 .pageBar 搬到 .page 下、成为 .pageBody 的**兄弟**：
-         section.page
-           ├ div.pageBar      ← 搬到这里，flex:none，固定在顶部
-           └ div.pageBody     ← 被 flex 压缩到栏下沿，内容到这里就断
-       与输入栏那次（把 composerSeat 抬出 scrollBody）是同一个手法。
-
-     ⚠ 代价（必须说清楚）：官方的 header-scroll.ts 用
-         const body = bar.parentElement
-       来取滚动容器；栏一旦搬家，body 变成 .page（不滚动），
-       scrollTop 恒为 0，于是"滚动时栏收缩"的动画不再触发 —— 栏永远是
-       展开态 130px。这个动画是装饰性的，换来的是真裁切，值得。
-       也正因为不收缩，裁切线位置稳定，观感更干净。
-
-     CSS 这边只做两件事：把栏变成固定在顶部的一条，并给回它 self 的定位。
-     ⚠ 不再给任何"实色底"—— 裁切不需要底色，底色只会变成黑带。 */
-  'html[data-dsh-acrylic-light] [class*="_page"] > [data-plugin-bar]{',
-  '  flex:none!important;',
-  '  position:relative!important;',
-  '  top:auto!important;',
-  '  z-index:3!important;',
-  '  align-self:center!important;',
-  '}',
-  /* 搬出来的栏失去 .pageBody 给的负 margin 撑满，这里按 .page 的变量补回来，
-     让它与下方内容左右对齐。 */
-  'html[data-dsh-acrylic-light] [class*="_page"] > [data-plugin-bar]{',
-  '  width:100%!important;',
-  '  max-width:960px!important;',
-  '  margin-inline:0!important;',
-  '  padding-inline:0!important;',
-  '}',
 
   /* ── 输入栏内所有控件的过渡：一律关掉 ─────────────────────────────
      现象（用户逐步缩小后确认）：**只有发送按钮和问题输入框在闪**，
@@ -1132,7 +1080,7 @@ window.__ModuleLoader__.load({
            定时器到点才真正查 DOM。开销可忽略。 */
         const startObserver = () => {
           if (observer) return
-          observer = new MutationObserver(() => { scheduleLift(); schedulePageBar() })
+          observer = new MutationObserver(() => scheduleLift())
           // body 一定存在（插件在渲染层加载时已挂载），退化情况用 documentElement
           const target = document.body ?? document.documentElement
           if (!target) return
@@ -1150,7 +1098,6 @@ window.__ModuleLoader__.load({
               scheduleLift()
               /* 插件页的栏也一起补一次：切到插件页时 React 会重建 DOM，
                  栏回到滚动容器内部，必须重新抬出去才能维持裁切。 */
-              schedulePageBar()
             }
             document.addEventListener('focusout', (event) => {
               const seat = findSeat()
@@ -1206,45 +1153,12 @@ window.__ModuleLoader__.load({
              · 只在 .pageBar 确实是 .pageBody 的直接子元素时才搬，
                结构变了（DSH 升级）就什么都不做，绝不乱动；
              · 不碰焦点：这里搬的是页面栏，不涉及可编辑区域。 */
-        const findPagePanel = () => document.querySelector('[data-plugin-panel]')
-        const findPageBar = () => document.querySelector('[data-plugin-bar]')
-
-        const raisePageBar = () => {
-          const bar = findPageBar()
-          if (!bar) return false
-          const body = bar.parentElement
-          // 已经搬好（父级不再是滚动容器）
-          if (!body || body.getAttribute('data-plugin-body') === null) return true
-          const page = body.parentElement
-          if (!page) return false
-          // 把栏插到滚动容器**前面**：flex 顺序 bar → body
-          page.insertBefore(bar, body)
-          return true
-        }
-
-        let pageBarTimer = null
-        const schedulePageBar = () => {
-          if (pageBarTimer !== null) return
-          pageBarTimer = window.setTimeout(() => {
-            pageBarTimer = null
-            try { raisePageBar() } catch {}
-          }, 200)
-        }
 
         const restoreSeat = () => {
           stopObserver()
           const seat = findSeat()
           const scroll = findScroll()
           if (seat && scroll && seat.parentElement !== scroll) scroll.appendChild(seat)
-          // 插件页栏搬回原位（放回滚动容器内，恢复官方结构）
-          const bar = findPageBar()
-          if (bar) {
-            const page = bar.parentElement
-            const body = page && page.querySelector('[data-plugin-body]')
-            if (page && body && body.getAttribute('data-plugin-body') !== null) {
-              body.insertBefore(bar, body.firstChild)
-            }
-          }
         }
 
         const ensureLifted = () => {
