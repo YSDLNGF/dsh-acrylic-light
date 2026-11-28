@@ -1,4 +1,4 @@
-# 诊断：为什么打了补丁窗口还是不透明。
+﻿# 诊断：为什么打了补丁窗口还是不透明。
 #
 # 只看四件事，每一件都能单独决定成败：
 #   1. 目标 app.asar 里到底有没有 backgroundMaterial（补丁真的写进去了吗）
@@ -82,6 +82,8 @@ if (-not $asar) {
   #   DSH 的欢迎小窗（preload-welcome）本来就带 backgroundMaterial: "acrylic"，
   #   于是整份归档永远包含这个字符串 —— 用 Contains 判断会永远显示"已打补丁"，
   #   用户明明没打成功却看到 OK。这里改成带锚点的正则。
+  # 判断"材质打了没"必须限定在主窗口分支内：DSH 的欢迎小窗本来就有
+  # backgroundMaterial: "acrylic"，用 Contains 判断会永远显示"已打补丁"。
   $hasMaterial = [bool]($text -match 'process\.platform === "win32" && primary \? \{[\s\S]{0,400}?backgroundMaterial: "acrylic"')
   $hasTransparentTitle = $text.Contains('color: "#00000000",')
   $hasTransparentBg = [bool]($text -match '&& primary \? \{[\s\S]{0,400}?backgroundColor: "#00000000"')

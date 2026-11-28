@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Asar,
   [string]$Backup
 )
@@ -60,8 +60,8 @@ if (-not $asar) {
   if ($installDir) { $asar = Join-Path $installDir 'resources\app.asar' }
 }
 if ($asar -eq $null) {
-  Write-Host 'app.asar not found. Pass it with -Asar <path>.'
-  Write-Host 'Example: restore-asar.ps1 -Asar C:\path\to\resources\app.asar'
+  Write-Host '找不到 app.asar。请用 -Asar <路径> 指定。'
+  Write-Host '例如：restore-asar.ps1 -Asar C:\path\to\resources\app.asar'
   exit 2
 }
 
@@ -82,13 +82,13 @@ if (-not $Backup) {
   }
 }
 if (-not $Backup -or -not (Test-Path $Backup)) {
-  Write-Host "No backup found: $Backup"
-  Write-Host 'Pass one manually with -Backup <path>.'
+  Write-Host "找不到备份：$Backup"
+  Write-Host '可以用 -Backup <路径> 手动指定。'
   exit 2
 }
 
-Write-Host "target : $asar"
-Write-Host "backup : $Backup"
+Write-Host "目标：$asar"
+Write-Host "备份：$Backup"
 
 # -- make sure the file is not locked --
 try {
@@ -96,11 +96,11 @@ try {
   $stream.Close()
 } catch {
   Write-Host ''
-  Write-Host 'app.asar is still locked - DeepSeek Harness has not exited yet.'
-  Write-Host 'Quit it completely from the tray icon, then try again.'
+  Write-Host 'app.asar 仍被占用 —— DeepSeek Harness 还没有完全退出。'
+  Write-Host '请从托盘图标彻底退出，然后重试。'
   exit 3
 }
 
 Copy-Item $Backup $asar -Force
 Write-Host ''
-Write-Host 'app.asar restored. Restart DeepSeek Harness to get the stock look back.'
+Write-Host '已还原 app.asar。重启 DeepSeek Harness 即可恢复原生外观。'

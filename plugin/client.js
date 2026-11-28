@@ -291,6 +291,28 @@ const GLASS_STYLE = [
   '  --dsw-alias-label-dimmed:rgb(214 219 226)!important;',
   '  --dsw-alias-label-document-preview:rgb(228 232 238)!important;',
   '}',
+  /* ── 已归档会话：还原成灰色 ─────────────────────────────────
+     官方本来就会给归档行上灰：
+       .sessionRow.archived .title{ color: var(--dsw-alias-label-caption) }
+     但本主题为了深色下可读，把 label-caption 提亮成了
+       rgb(228 232 238)  —— 接近纯白的浅灰，
+     于是归档行和普通行几乎看不出差别，"已归档"这个状态就丢了。
+
+     ⚠ 不要为了这个去改 label-caption 令牌：它同时被输入框下方小字、
+       状态行、token 统计等大量地方引用，改暗会让那些字一起变灰。
+     正确做法是**只精确命中归档行内部的标题**，还原成官方那个中灰。
+       归档行 = [class*="_archived"]（由 result.archived 条件加上）
+       其标题 = 行内的 [class*="_title"]
+     颜色取 rgb(138 143 153)：比正文白低一档、又不像禁用那样灰得发死，
+     一眼能看出"这条已经收起来了"，但内容仍可读。
+     同时覆盖搜索结果里的归档条目（_searchResultTitle 等），
+     保持两处观感一致。 */
+  'html[data-dsh-acrylic-light] [class*="_archived"] [class*="_title"],',
+  'html[data-dsh-acrylic-light] [class*="_archived"] [class*="_searchResultTitle"],',
+  'html[data-dsh-acrylic-light] [class*="_archived"] [class*="_searchResultWorkspace"],',
+  'html[data-dsh-acrylic-light] [class*="_archived"] [class*="_searchResultSnippet"]{',
+  '  color:rgb(138 143 153)!important;',
+  '}',
   /* 连带提亮底层静态色：上面几档都引用 bluish-200/300/400/600/700，
      直接在静态色这一层改，能一次覆盖所有引用者（包括写死用它们的组件）。
      ⚠ 不动 bluish-00/50/1000：它们被背景与品牌色共用。 */
@@ -311,19 +333,23 @@ const GLASS_STYLE = [
        padding 会顶得座位层离开底部（实测：输入栏上移），
        mask 要么跟着内容滚（基准是内容高度）、要么连座位层一起裁掉。
        保持 DSH 原生布局，输入栏才稳在底部。
-       若文字仍与输入栏重叠，那说明滚动区高度覆盖了输入栏区域，
-       需另找方式（见 paint() 里的处理）。 */
-  /* ── 三列：唯一铺色的地方 ───────────────────────────────────
-     alpha 默认 0 = 完全透明（纯亚克力）。
-     想给问答正文加一点点底，把 alpha 调到 10–16 即可
-     （实色百分比，不会像混壁纸色那样发灰）。 */
+       若文字仍与输入栏重叠，那说明滚动区高度覆盖了输入栏区域，需另找方式（见 paint() 里的处理）。 */
+  /* ── 三列：全部透明，让壁纸完整透上来 ────────────────────────
+     用户要求"透就透干净"：主面板、侧栏、右栏都不再铺任何底色。
+
+     ⚠ 侧栏原先是 rgb(20 22 28 / 8%)，理由是"需要一点底才能与主区分离"。
+       但深色半透明叠在壁纸上，观感就是整块发灰 —— 与主面板同一个问题。
+       现在改成全透明，分离感改由下面那条发丝线承担：
+       0.5px、白色 7% —— 只在边界上留一道极细的高光，面积几乎为零，
+       不会把区域染灰，但三列仍有清晰界线。
+       这条线是关键：没有它，三块区域会完全糊成一片、看不出边界。 */
   'html[data-dsh-acrylic-light] [class*="_sidebarCol"]{',
-  '  background:rgb(20 22 28 / 8%)!important;',
+  '  background:transparent!important;',
   '  border-right:.5px solid rgb(255 255 255 / 7%)!important;',
   '}',
   'html[data-dsh-acrylic-light] [class*="_centerCol"],',
   'html[data-dsh-acrylic-light] [class*="_rightbarCol"]{',
-  '  background:rgb(16 18 23 / 10%)!important;',
+  '  background:transparent!important;',
   '}',
   'html[data-dsh-acrylic-light] [class*="_bottomRow"]{background:transparent!important}',
 
@@ -945,10 +971,17 @@ window.__ModuleLoader__.load({
            那样切回会话时就能照常搬移，裁切恢复。
 
            为什么用时间窗而不是布尔：用户停下来之后要能恢复裁切，
-           所以"最近 1.2 秒内有输入动作"才算在打字，超时自动放行。
+           所以"最近 2.5 秒内有输入动作"才算在打字，超时自动放行。
 
            ⚠ 全程不调用 focus()、不模拟点击 —— 只读事件，不干预焦点。 */
-        const INPUT_INTENT_MS = 1200
+        /* 时间窗取 2.5 秒而不是 1.2 秒。
+           理由：用户点进输入栏之后，往往要停顿一下才开始打字
+           （想说什么、看清光标位置）。窗口太短的话，点完还没敲字
+           就被判定为"没在打字"，liftSeat 会把座搬走、焦点被杀 ——
+           正是用户报的"第一次点会灭掉"。
+           2.5 秒足够覆盖"点进去 → 停顿 → 开始输入"的节奏；
+           真正停手不写了，2.5 秒后自动放行恢复裁切，也不会一直挡着。 */
+        const INPUT_INTENT_MS = 2500
         let lastInputIntentAt = 0
         const noteInputIntent = () => { lastInputIntentAt = Date.now() }
 
@@ -960,14 +993,27 @@ window.__ModuleLoader__.load({
           document.addEventListener('beforeinput', noteInputIntent, true)
           document.addEventListener('paste', noteInputIntent, true)
           /* 点击才代表"用户想在这里输入"。用 pointerdown 而不是 click：
-             click 在编辑器内部可能被吞掉，pointerdown 一定先到。 */
-          document.addEventListener('pointerdown', (event) => {
+             click 在编辑器内部可能被吞掉，pointerdown 一定先到。
+             同时挂 mousedown / touchstart 作为兜底 —— 个别环境下
+             pointerdown 可能被上游 stopPropagation 掉。 */
+          const onPointer = (event) => {
             const seat = findSeat()
             if (seat && event.target instanceof Node && seat.contains(event.target)) {
               noteInputIntent()
             }
-          }, true)
+          }
+          document.addEventListener('pointerdown', onPointer, true)
+          document.addEventListener('mousedown', onPointer, true)
+          document.addEventListener('touchstart', onPointer, true)
         }
+
+        /* ⚠ 启动时就绑定，不要等第一次 typingInComposer 才懒绑定。
+           懒绑定会漏掉"冷启动后的第一次点击"：
+             用户点输入栏时监听器还没挂上 → 意图没被记录
+             → 250ms 后 liftSeat 判定"没在打字" → 搬走输入栏 → 焦点被杀
+             → 表现为"第一次点会灭掉，第二次才正常"。
+           这里在模块加载时立刻绑好，第一次点击就能被捕捉到。 */
+        bindInputIntentWatch()
 
         const typingInComposer = () => {
           const seat = findSeat()
@@ -976,7 +1022,8 @@ window.__ModuleLoader__.load({
           /* 焦点必须仍在输入栏内 —— 这条保留：焦点已经离开时，
              搬不移都不影响用户输入，没必要再拦。 */
           if (active === null || active === document.body || !seat.contains(active)) return false
-          /* 焦点在栏内，但只有"最近真的有输入动作"才算在打字。 */
+          /* 监听器已在启动时绑好（见上面的 bindInputIntentWatch() 调用），
+             这里再调一次只是幂等兜底（done 标记保证不会重复绑定）。 */
           bindInputIntentWatch()
           return Date.now() - lastInputIntentAt < INPUT_INTENT_MS
         }

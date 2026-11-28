@@ -30,27 +30,27 @@ set "RC=%errorlevel%"
 echo.
 if not "%RC%"=="0" (
   echo ============================================================
-  echo   [FAILED] The patch was not applied.
+  echo   [FAILED] The patch did NOT apply.
   echo ============================================================
   echo.
-  echo   See the messages above for the reason.
+  echo   The reason is printed above.
   echo.
-  echo   Quick checklist:
-  echo     1. DeepSeek Harness really exited
-  echo        Task Manager -^> end every "DeepSeek Harness" process
-  echo     2. Permissions
+  echo   Check these three things:
+  echo     1. Is DeepSeek Harness really closed?
+  echo        Task Manager -^> end every "DeepSeek Harness" entry
+  echo     2. Try again as administrator
   echo        Right-click this file -^> Run as administrator
-  echo     3. Unusual install location
+  echo     3. Installed somewhere unusual?
   echo        powershell -ExecutionPolicy Bypass -File "%~dp0apply-when-closed.ps1" -Asar "D:\your\path\resources\app.asar"
   echo.
-  echo   Log: %~dp0apply.log
+  echo   Full log: %~dp0apply.log
   echo.
   pause
   exit /b 1
 )
 
 echo ============================================================
-echo   Patch applied. DeepSeek Harness is restarting.
+echo   Patch applied. DeepSeek Harness is restarting...
 echo ============================================================
 echo.
 timeout /t 5 >nul 2>&1
